@@ -1,4 +1,5 @@
 # Simulating Financial Markets Using Reinforcement Learning
+
 ## Presentation
 
 During this project, our team will build a game simulating a financial market where stocks of some companies are being traded by some agents. Of course, it will be a simplified version of the real financial markets, but with equivalent rules. Our purpose is to make some AI powered bots evolve in this game environment and let them find their strategies to become better and better in the style of [Alpha Zero](https://arxiv.org/abs/1712.01815) with the game of Go.
