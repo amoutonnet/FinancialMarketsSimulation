@@ -77,7 +77,7 @@ class Dealer(Actor):
         if np.random.rand() <= epsilon:
             id_company = random.choice(list(self.portfolio))
             state = self.market.get_state(id_company)
-            action = np.random.randint(5)
+            action = np.random.randint(3)
             if action == 0:
                 if state is not None:
                     self.buymarket(id_company, np.random.randint(7), state[2] + np.random.gamma(1))
@@ -85,15 +85,9 @@ class Dealer(Actor):
                     self.buymarket(id_company, np.random.randint(7), float('inf'))
             elif action == 1:
                 if state is not None:
-                    self.buylimit(id_company, np.random.randint(7), state[2] - np.random.gamma(1))
-            elif action == 2:
-                if state is not None:
                     self.sellmarket(id_company, np.random.randint(min(self.portfolio[id_company], 7)), state[0] - np.random.gamma(1))
                 else:
                     self.sellmarket(id_company, np.random.randint(min(self.portfolio[id_company], 7)), 0)
-            elif action == 3:
-                if state is not None:
-                    self.selllimit(id_company, np.random.randint(min(self.portfolio[id_company], 7)), state[0] + np.random.gamma(1))
             else:
                 pass
         else:
@@ -106,14 +100,6 @@ class Dealer(Actor):
     def sellmarket(self, id_company, amount, extreme_price):
         if amount > 0:
             self.market.create_immediate_order(1, self, id_company, amount, extreme_price)
-
-    def buylimit(self, id_company, amount, price):
-        if amount > 0:
-            self.market.create_limit_order(0, self, id_company, amount, price)
-
-    def selllimit(self, id_company, amount, price):
-        if amount > 0:
-            self.market.create_limit_order(1, self, id_company, amount, price)
 
     def __str__(self):
         return ("Dealer ID%s" % self.id_).ljust(11, ' ')
@@ -144,56 +130,101 @@ class PositionsList(list):
         super().append(position)
         self.descending_order = sorted(self, key=itemgetter(3), reverse=True)
         self.ascending_order = sorted(self, key=itemgetter(1))
-        self.first_bid_position = self.descending_order[0]
-        self.first_ask_position = self.ascending_order[0]
 
 
 class Order():
-    def __init__(self, type_, contracted_by, company, amount):
+    def __init__(self, market, type_, contracted_by, company, amount):
         self.type_ = type_
         self.contracted_by = contracted_by
         self.company = company
         self.amount = amount
+        self.market = market
 
 
 class ImmediateOrder(Order):
-    def __init__(self, type_, contracted_by, company, amount, extreme_price):
-        super().__init__(type_, contracted_by, company, amount)
+    def __init__(self, market, type_, contracted_by, company, amount, extreme_price):
+        super().__init__(market, type_, contracted_by, company, amount)
         self.extreme_price = extreme_price
 
-    def process_sale(self, positions):
-        pass
+    def fulfill_order(self, positions, verbose=False):
+        if verbose:
+            output('\nNew order: %s' % str(self))
+        if self.type_:
+            fully_fulfilled, transaction_happend, over_extreme = self.process_sale(positions.descending_order, verbose)
+        else:
+            fully_fulfilled, transaction_happend, over_extreme = self.process_purchase(positions.ascending_order, verbose)
+        if verbose:
+            if fully_fulfilled:
+                output('Order was fully fullfilled')
+            elif transaction_happend:
+                if over_extreme:
+                    output('Order was not fully fullfilled due to volatile market')
+                else:
+                    output('Order was not fully fullfilled due to lack of supply')
+            else:
+                if over_extreme:
+                    output('Order was not fullfilled at all due to volatile market')
+                else:
+                    output('Order was not fullfilled at all due to lack of supply')
 
-    def process_purchase(self, positions):
-        pass
+    def process_sale(self, positions, verbose):
+        fully_fulfilled = False
+        transaction_happend = False
+        over_extreme = False
+        for j in range(len(positions)):
+            if self.extreme_price > positions[j].bid_price:
+                over_extreme = True
+                break
+            if positions[j].max_bid > 0 and self.contracted_by.cash >= positions[j].bid_price * positions[j].max_bid:
+                transaction_happend = True
+                nb_stock_transfered = min(self.amount, positions[j].max_bid)
+                total_of_transaction = nb_stock_transfered * positions[j].bid_price
+                self.contracted_by.cash += total_of_transaction
+                self.contracted_by.portfolio[self.company] -= nb_stock_transfered
+                positions[j].marketmaker.cash -= total_of_transaction
+                positions[j].marketmaker.portfolio[self.company] += nb_stock_transfered
+                positions[j].max_bid -= nb_stock_transfered
+                self.amount -= nb_stock_transfered
+                if verbose:
+                    output('New transaction: %s just sold %d %s stocks to %s for %.2f' % (self.contracted_by, nb_stock_transfered, self.company, positions[j].marketmaker, total_of_transaction))
+                if self.amount == 0:
+                    fully_fulfilled = True
+                    break
+        return fully_fulfilled, transaction_happend, over_extreme
+
+    def process_purchase(self, positions, verbose):
+        fully_fulfilled = False
+        transaction_happend = False
+        over_extreme = False
+        for j in range(len(positions)):
+            if self.extreme_price < positions[j].ask_price:
+                over_extreme = True
+                break
+            if positions[j].max_ask > 0 and self.contracted_by.cash >= positions[j].ask_price * positions[j].max_ask:
+                transaction_happend = True
+                nb_stock_transfered = min(self.amount, positions[j].max_ask)
+                total_of_transaction = nb_stock_transfered * positions[j].ask_price
+                self.contracted_by.cash -= total_of_transaction
+                self.contracted_by.portfolio[self.company] += nb_stock_transfered
+                positions[j].marketmaker.cash += total_of_transaction
+                positions[j].marketmaker.portfolio[self.company] -= nb_stock_transfered
+                positions[j].max_ask -= nb_stock_transfered
+                self.amount -= nb_stock_transfered
+                if verbose:
+                    output('New transaction: %s just bought %d %s stocks to %s for %.2f' % (self.contracted_by, nb_stock_transfered, self.company, positions[j].marketmaker, total_of_transaction))
+                if self.amount == 0:
+                    fully_fulfilled = True
+                    break
+        return fully_fulfilled, transaction_happend, over_extreme
 
     def __str__(self):
         action = 'sell' if self.type_ else 'buy'
-        to_print = '%s wants to %s %d %s stocks' % (self.contracted_by, action.ljust(4, ' '), self.amount, self.company.ljust(5, ' '))
+        to_print = '%s wants to %s %d %s stocks' % (self.contracted_by, action, self.amount, self.company)
         if self.type_ and self.extreme_price > 0:
             to_print += ' for %.2f minimum' % self.extreme_price
         elif not self.type_ and self.extreme_price < float('inf'):
             to_print += ' for %.2f maximum' % self.extreme_price
         return to_print
-
-    __repr__ = __str__
-
-
-class LimitOrder(Order):
-    def __init__(self, type_, contracted_by, company, amount, price):
-        super().__init__(type_, contracted_by, company, amount)
-        self.trigger_price = price
-
-    def process_sale(self, position):
-        pass
-
-    def process_purchase(self, position):
-        pass
-
-    def __str__(self):
-        action = 'sell' if self.type_ else 'buy'
-        limit = 'over' if self.type_ else 'below'
-        return '%s wants to %s %d %s stocks as soon as price go %s %.2f' % (self.contracted_by, action.ljust(4, ' '), self.amount, self.company.ljust(5, ' '), limit, self.trigger_price)
 
     __repr__ = __str__
 
@@ -218,7 +249,6 @@ class Market():
         self.positions = {}
         self.initial_portfolio = {}
         self.immediate_orders = []
-        self.limit_orders = []
 
     def init(self):
         self.initial_portfolio = {}
@@ -259,11 +289,8 @@ class Market():
         id_ = len(self.marketmakers)
         self.marketmakers[id_] = MarketMaker(id_, 'Market Maker ID%s' % id_, self, self.initial_budget_per_marketmaker, companies)
 
-    def create_immediate_order(self, type_, contracted_by, id_company, amount, extreme_price):
-        self.immediate_orders += [ImmediateOrder(type_, contracted_by, id_company, amount, extreme_price)]
-
-    def create_limit_order(self, type_, contracted_by, id_company, amount, price):
-        self.limit_orders += [LimitOrder(type_, contracted_by, id_company, amount, price)]
+    def create_immediate_order(self, type_, contracted_by, id_company, amount, extreme):
+        self.immediate_orders += [ImmediateOrder(self, type_, contracted_by, id_company, amount, extreme)]
 
     def take_position(self, market_maker, id_company, ask_price, max_ask, bid_price, max_bid):
         self.positions[id_company][-1].append(Position(market_maker, ask_price, max_ask, bid_price, max_bid))
@@ -284,27 +311,11 @@ class Market():
             for i, j in self.positions.items():
                 output(j[-1], i)
             output(self.immediate_orders, 'Immediate Orders')
-            output(self.limit_orders, 'Limit Orders')
-        random.shuffle(self.limit_orders)
-        for order in self.limit_orders:
-            if order.type_:
-                # If the order is a sell order
-                interesting_position = self.positions[order.company][-1].first_bid_position
-                if interesting_position[0] is not None and interesting_position[3] > order.trigger_price:
-                    order.process_sale(interesting_position)
-            else:
-                # If the order is a buy order
-                interesting_position = self.positions[order.company][-1].first_ask_position
-                if interesting_position[0] is not None and interesting_position[1] < order.trigger_price:
-                    order.process_purchase(interesting_position)
         random.shuffle(self.immediate_orders)
         for order in self.immediate_orders:
-            if order.type_:
-                # If the order is a sell order
-                order.process_sale(self.positions[order.company][-1].descending_order)
-            else:
-                # If the order is a buy order
-                order.process_purchase(self.positions[order.company][-1].ascending_order)
+            order.fulfill_order(self.positions[order.company][-1], True)
+        if verbose:
+            print(self)
         self.immediate_orders = []
         self.reset_positions()
         self.current_time_step += 1
@@ -312,7 +323,6 @@ class Market():
     def simulate(self, nb_steps=20, verbose=False):
         for _ in range(nb_steps):
             self.time_step(verbose)
-            print(self)
 
     def __str__(self):
         to_print = '\n' + ('State of the market at time %d' % self.current_time_step).center(70, '-')
@@ -346,4 +356,4 @@ class Company(Actor):
 if __name__ == "__main__":
     market = Market()
     market.init()
-    market.simulate(2, True)
+    market.simulate(1, False)
