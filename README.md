@@ -28,5 +28,3 @@ We are five student at UC Berkeley, in a Master of Engineering program within th
 - [Anqi Shi](https://www.linkedin.com/in/anqi-shi-691699180/)
 - [Aakash Grover](https://www.linkedin.com/in/aakash-grover/)
 - [Adam Moutonnet](https://www.linkedin.com/in/amoutonnet/)
-
-jjjfej
