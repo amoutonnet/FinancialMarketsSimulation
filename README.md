@@ -22,7 +22,7 @@ To resemble a real environment, we would add externalities to the current system
 
 ## Us
 
-We are five student at UC Berkeley, in a Master of Engineering program within the Fintech concentration of the IEOR department:
+We are five students at UC Berkeley, in a Master of Engineering program within the Fintech concentration of the IEOR department:
 - [Zefan Yang](https://www.linkedin.com/in/zefan-yang-553955146/)
 - [Yida Cui](https://www.linkedin.com/in/yidacui/)
 - [Anqi Shi](https://www.linkedin.com/in/anqi-shi-691699180/)
