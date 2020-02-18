@@ -65,27 +65,37 @@ class MarketMaker(Actor):
         self.purchases = 0          # The number of stocks he purchased last time step
         self.position = None        # Its position on the market, represented by a Position class
 
-    def make_market(self, epsilon=1):
+    def get_state(self):
+        """ This function is called to get the state of the environment seen
+        by the market maker """
+        if self.position is None:
+            return None
+        else:
+            return [self.position, self.sells, self.purchases]
+
+    def policy(self, epsilon=1):
+        """ This function is called to get the action to take for the time step """
+        state = self.get_state()
+        if np.random.rand() <= epsilon:
+            # Random Action
+            if state is None:
+                ask = 100
+                spread = np.random.gamma(10)
+            else:
+                ask = state[0].ask_price + np.random.normal(scale=5)
+                spread = np.random.gamma(10)
+        else:
+            # Thoughtful action
+            ask = 0
+            spread = 0
+        max_bid = 1000
+        return [ask, ask - spread, max_bid]
+
+    def make_market(self, action):
         """ This function is called at each time step and
         allow the market maker to take a position on the
         market """
-        if np.random.rand() <= epsilon:
-            # Exploration with random actions
-            if self.position is None:
-                initial_mean = 100
-                initial_ask = initial_mean + np.random.gamma(5)
-                initial_bid = initial_mean - np.random.gamma(5)
-                initial_max_bid = np.random.randint(1000)
-                self.position = Position(self, initial_ask, 0, initial_bid, initial_max_bid)
-            else:
-                mean = self.position.get_mean() * (1 + 0.01 * self.sells) if self.sells else self.position.get_mean() * 0.99
-                max_bid = max(self.position.max_bid + self.purchases if self.purchases else self.position.max_bid - 5, 1)
-                ask = mean + np.random.gamma(5)
-                bid = mean - np.random.gamma(5)
-                self.position = Position(self, ask, self.portfolio, bid, max_bid)
-        else:
-            # Thoughful actions
-            pass
+        self.position = Position(self, action[0], self.portfolio, action[1], action[2])
         self.sells = 0
         self.purchases = 0
 
@@ -96,7 +106,7 @@ class MarketMaker(Actor):
 
 
 class Dealer(Actor):
-    """ 
+    """
     This class is used to represent a Dealer. It inherits
     from the Actor class. The dealer starts the game with
     a set of stocks, and an initial amount of cash and will try
@@ -108,42 +118,50 @@ class Dealer(Actor):
         self.cash = initial_budget           # The cash of the dealer
         self.portfolio = initial_portfolio   # The dealer's portfolio of stocks
 
-    def take_action(self, epsilon=1):
+    def get_state(self):
+        """ This function is called to get the state of the environment seen
+        by the dealer """
+        return None
+
+    def policy(self, epsilon=1):
+        """ This function is called to get the action to take for the time step """
+        state = self.get_state()
+        if np.random.rand() <= epsilon:
+            # Random Action
+            type_of_transaction = np.random.randint(3)
+            if type_of_transaction == 0:
+                id_company = random.choice(list(self.portfolio.keys()))
+                amount = np.random.randint(1, MAX_AMOUNT)
+                extreme_price = float('inf')
+            elif type_of_transaction == 1:
+                id_company = random.choice([k for k, v in self.portfolio.items() if v > 0])
+                if self.portfolio[id_company] > 1:
+                    amount = np.random.randint(1, self.portfolio[id_company])
+                else:
+                    amount = 1
+                extreme_price = 0
+            else:
+                id_company = None
+                amount = 0
+                extreme_price = 0
+        else:
+            # Thoughtful Action
+            id_company = None
+            type_of_transaction = 0
+            amount = 0
+        return [type_of_transaction, id_company, amount, extreme_price]
+
+    def trade(self, action):
         """ This function is called at each time step and
         allow the dealer to either buy a stock at the market
-        price, sell it at the market price, or do nothing """
-        if np.random.rand() <= epsilon:
-            # Exploration with random actions
-            id_company = random.choice(list(self.portfolio))  # We choose a company to bet on
-            state = self.market.get_state(id_company)         # We get the state of the market for this company
-            action = np.random.randint(3)                     # We choose which action to take for this company
-            if action == 0:
-                # Buy
-                self.buymarket(id_company, np.random.randint(1, MAX_AMOUNT), float('inf'))
-            elif action == 1:
-                # Sell
-                max_amount = min(self.portfolio[id_company], MAX_AMOUNT)
-                if max_amount > 1:
-                    amount = np.random.randint(1, max_amount)
-                    self.sellmarket(id_company, amount, 0)
-                elif max_amount == 1:
-                    self.sellmarket(id_company, 1, 0)
-                else:
-                    pass
-            else:
-                # Draw
-                pass
-        else:
-            # Thoughful actions
-            pass
-
-    def buymarket(self, id_company, amount, extreme_price):
-        """ This function creates a buy order that will be processed by the market afterwards """
-        self.market.create_immediate_order(0, self, id_company, amount, extreme_price)
-
-    def sellmarket(self, id_company, amount, extreme_price):
-        """ This function creates a sell order that will be processed by the market afterwards """
-        self.market.create_immediate_order(1, self, id_company, amount, extreme_price)
+        price, sell it at the market price, or do nothing
+        depending on the action he decides to take """
+        type_of_transaction = action[0]
+        if type_of_transaction < 2:
+            id_company = action[1]
+            amount = action[2]
+            extreme_price = action[3]
+            self.market.create_immediate_order(type_of_transaction, self, id_company, amount, extreme_price)
 
     def __str__(self):
         return ("Dealer ID%s" % self.id_).ljust(11, ' ')
@@ -154,7 +172,7 @@ class Dealer(Actor):
 class Position(list):
     """
     This class inheriting from a list is used to represent a
-    Position of a market maker. 
+    Position of a market maker.
     """
 
     def __init__(self, marketmaker, ask_price, max_ask, bid_price, max_bid):
@@ -164,11 +182,6 @@ class Position(list):
         self.max_ask = max_ask          # The maximum stocks the market maker is willing to sell
         self.bid_price = bid_price      # The bid price of the current position
         self.max_bid = max_bid          # The maximum stocks the market maker is willing to buy
-
-    def get_mean(self):
-        """ This function returns the mean between the ask price
-        and the bid price """
-        return (self.ask_price + self.bid_price) / 2
 
     def __str__(self):
         return "%s is ready to buy %d stocks at %.2f and sell %d stocks at %.2f" % (self.marketmaker, self.max_bid, self.bid_price, self.max_ask, self.ask_price)
@@ -188,7 +201,7 @@ class Order():
 
 
 class ImmediateOrder(Order):
-    """ This class inheriting from order is used to represent an immediate order, 
+    """ This class inheriting from order is used to represent an immediate order,
     i.e. an order to be fulfilled during this time step at market price."""
 
     def __init__(self, market, type_, contracted_by, company, amount, extreme_price):
@@ -220,8 +233,9 @@ class ImmediateOrder(Order):
         over_extreme = False
         if self.extreme_price > position.bid_price:
             over_extreme = True
-        elif position.max_bid > 0 and position.marketmaker.cash >= position.bid_price * position.max_bid:
-            nb_stock_transfered = min(self.amount, position.max_bid)
+        cash_limit = position.marketmaker.cash // position.bid_price
+        if position.max_bid > 0 and cash_limit > 0:
+            nb_stock_transfered = min(self.amount, position.max_bid, cash_limit)
             total_of_transaction = nb_stock_transfered * position.bid_price
             self.contracted_by.cash += total_of_transaction
             self.contracted_by.portfolio[self.company] -= nb_stock_transfered
@@ -234,11 +248,9 @@ class ImmediateOrder(Order):
             self.market.companies[self.company].is_market_bid = True
             self.amount -= nb_stock_transfered
             if verbose:
-                print_to_output('New transaction: %s just sold %d %s stocks to %s for %.2f' % (self.contracted_by, nb_stock_transfered, self.company, position.marketmaker, total_of_transaction))
+                print_to_output('Details: %s just sold %d %s stocks to %s for %.2f' % (self.contracted_by, nb_stock_transfered, self.company, position.marketmaker, total_of_transaction))
             if self.amount == 0:
                 fully_fulfilled = True
-        else:
-            pass
         return fully_fulfilled, over_extreme
 
     def process_purchase(self, position, verbose):
@@ -247,8 +259,9 @@ class ImmediateOrder(Order):
         over_extreme = False
         if self.extreme_price < position.ask_price:
             over_extreme = True
-        if position.max_ask > 0 and self.contracted_by.cash >= position.ask_price * position.max_ask:
-            nb_stock_transfered = min(self.amount, position.max_ask)
+        cash_limit = self.contracted_by.cash // position.ask_price
+        if position.max_ask > 0 and cash_limit > 0:
+            nb_stock_transfered = min(self.amount, position.max_ask, cash_limit)
             total_of_transaction = nb_stock_transfered * position.ask_price
             self.contracted_by.cash -= total_of_transaction
             self.contracted_by.portfolio[self.company] += nb_stock_transfered
@@ -261,7 +274,7 @@ class ImmediateOrder(Order):
             self.market.companies[self.company].is_market_ask = True
             self.amount -= nb_stock_transfered
             if verbose:
-                print_to_output('New transaction: %s just bought %d %s stocks to %s for %.2f' % (self.contracted_by, nb_stock_transfered, self.company, position.marketmaker, total_of_transaction))
+                print_to_output('Details: %s just bought %d %s stocks to %s for %.2f' % (self.contracted_by, nb_stock_transfered, self.company, position.marketmaker, total_of_transaction))
             if self.amount == 0:
                 fully_fulfilled = True
         return fully_fulfilled, over_extreme
@@ -279,9 +292,9 @@ class ImmediateOrder(Order):
 
 
 class Market():
-    """ 
-    This class is used to represent a market, with a 
-    certain number of companies, market makers and 
+    """
+    This class is used to represent a market, with a
+    certain number of companies, market makers and
     dealers evolving in it
     """
 
@@ -298,7 +311,8 @@ class Market():
         self.immediate_orders = []                                            # A dictionnary containing immediate orders
 
         # A few dictionnaries to track the simulation
-        self.means = {}
+        self.asks = {}
+        self.bids = {}
         self.dealers_cash = {}
         self.marketmakers_cash = {}
 
@@ -319,7 +333,8 @@ class Market():
         """ This function is used to create a company within the market """
         if id_ not in self.companies.keys():
             self.companies[id_] = Company(id_, name, self, self.initial_nb_shares)
-            self.means[id_] = []
+            self.asks[id_] = []
+            self.bids[id_] = []
         else:
             print_to_output("This company's symbol already exists")
 
@@ -327,7 +342,8 @@ class Market():
         """ This function is used between each step to prepare placeholders
         to track the state of the market """
         for id_ in self.companies.keys():
-            self.means[id_] += [self.companies[id_].marketmaker.position.get_mean()]
+            self.asks[id_] += [self.companies[id_].marketmaker.position.ask_price]
+            self.bids[id_] += [self.companies[id_].marketmaker.position.bid_price]
             self.companies[id_].is_market_ask = False
             self.companies[id_].is_market_bid = False
             self.companies[id_].bid_price_market += [None]
@@ -341,7 +357,7 @@ class Market():
     def create_dealer(self):
         """ This function is used to create a dealer within the market """
         id_ = len(self.dealers)
-        self.dealers[id_] = Dealer(id_, 'Dealer ID%s' % id_, self, self.initial_budget_per_dealer, self.initial_portfolio)
+        self.dealers[id_] = Dealer(id_, 'Dealer ID%s' % id_, self, self.initial_budget_per_dealer, self.initial_portfolio.copy())
         self.dealers_cash[id_] = [self.initial_budget_per_dealer]
 
     def create_immediate_order(self, type_, contracted_by, id_company, amount, extreme):
@@ -349,7 +365,7 @@ class Market():
         self.immediate_orders += [ImmediateOrder(self, type_, contracted_by, id_company, amount, extreme)]
 
     def get_state(self, id_company):
-        """ This function is used to get the state of the market, i.e. the last 
+        """ This function is used to get the state of the market, i.e. the last
         transaction that has been processed """
         state = []
         if self.companies[id_company].is_market_ask:
@@ -366,12 +382,12 @@ class Market():
         """ This function is used to simulate a time step """
         # First each market maker takes a position
         for company in self.companies.values():
-            company.marketmaker.make_market()
+            company.marketmaker.make_market(company.marketmaker.policy())
         if verbose > 1:
             print_to_output([i.marketmaker.position for i in self.companies.values()], 'Positions of Market Makers', overoneline=False)
         # Then each dealer takes an action which creates an order
         for d in self.dealers.values():
-            d.take_action()
+            d.trade(d.policy())
         if verbose > 1:
             print_to_output(title='Orders')
         # Then we fulfill each order randomly
@@ -392,17 +408,19 @@ class Market():
         horizon = range(nb_steps) if verbose > 0 else tqdm(range(nb_steps), total=nb_steps)
         for _ in horizon:
             self.time_step(verbose)
-        self.plot_final_state()
+        self.plot_final_state(nb_steps)
 
-    def plot_final_state(self):
+    def plot_final_state(self, nb_steps):
         """ This function is used to plot the information we tracked during the simulation """
         fig = plt.figure()
         spec = gridspec.GridSpec(ncols=2, nrows=2, figure=fig)
         ax1 = fig.add_subplot(spec[0, :])
         ax2 = fig.add_subplot(spec[1, 0])
         ax3 = fig.add_subplot(spec[1, 1])
-        for k, v in self.means.items():
-            ax1.plot(v, label=k)
+        x = np.arange(0, nb_steps, 1)
+        for (k, v1), v2 in zip(self.asks.items(), self.bids.values()):
+            ax1.plot(x, (np.array(v1) + np.array(v2)) / 2, label=k)
+            ax1.fill_between(x=x, y1=v1, y2=v2, alpha=0.3)
         ax1.legend()
         ax1.set_title('Evolution of Mean Price')
         ax1.set_xlabel('Time (steps)')
@@ -436,10 +454,10 @@ class Market():
 
 
 class Company(Actor):
-    """ 
+    """
     This class is used to represent a Company. It inherits
     from the Actor class. The company stocks are traded at a certain
-    price over the market, and each company is assigned a market 
+    price over the market, and each company is assigned a market
     dealer responsible for making a market happen
     """
 
@@ -467,5 +485,5 @@ if __name__ == "__main__":
     # Initialize the market
     market = Market()
     # Run the simulation for N steps
-    N = 500
+    N = 100
     market.simulate(N, verbose=0)
