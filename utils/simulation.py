@@ -367,9 +367,9 @@ class Market():
             self.ax3.set_ylim([0, 20000])
             self.animation_started = True
             self.animation_fig.canvas.draw()
-            # self.ax1background = self.animation_fig.canvas.copy_from_bbox(self.ax1.bbox)
-            # self.ax2background = self.animation_fig.canvas.copy_from_bbox(self.ax2.bbox)
-            # self.ax3background = self.animation_fig.canvas.copy_from_bbox(self.ax3.bbox)
+            self.ax1background = self.animation_fig.canvas.copy_from_bbox(self.ax1.bbox)
+            self.ax2background = self.animation_fig.canvas.copy_from_bbox(self.ax2.bbox)
+            self.ax3background = self.animation_fig.canvas.copy_from_bbox(self.ax3.bbox)
             plt.show(block=False)
             self.polygon1 = [None for i in range(len(self.asks))]
         self.settle_positions(actions_market_makers, verbose)
@@ -395,28 +395,28 @@ class Market():
                 self.line2 = self.ax2.get_lines()
                 self.line3 = self.ax3.get_lines()
             else:
-                # self.animation_fig.canvas.restore_region(self.ax1background)
-                # self.animation_fig.canvas.restore_region(self.ax2background)
-                # self.animation_fig.canvas.restore_region(self.ax3background)
+                self.animation_fig.canvas.restore_region(self.ax1background)
+                self.animation_fig.canvas.restore_region(self.ax2background)
+                self.animation_fig.canvas.restore_region(self.ax3background)
                 for i, k in enumerate(self.asks.keys()):
                     v1, v2 = self.asks[k][-1], self.bids[k][-1]
                     self.line1[i].set_data(x[1:][-99:], np.append(self.line1[i].get_ydata(), [(v1 + v2) / 2])[-99:])
                     self.ax1.set_xlim([x[1], x[-1]])
-                    # self.ax1.draw_artist(self.line1[i])
+                    self.ax1.draw_artist(self.line1[i])
                 for i, k in enumerate(self.dealers_cash.keys()):
                     v = self.dealers_cash[k][-1:]
                     self.line2[i].set_data(x[-99:], np.append(self.line2[i].get_ydata(), v)[-99:])
                     self.ax2.set_xlim([x[0], x[-1]])
-                    # self.ax2.draw_artist(self.line2[i])
+                    self.ax2.draw_artist(self.line2[i])
                 for i, k in enumerate(self.market_makers_cash.keys()):
                     v = self.market_makers_cash[k][-1:]
                     self.line3[i].set_data(x[-99:], np.append(self.line3[i].get_ydata(), v)[-99:])
                     self.ax3.set_xlim([x[0], x[-1]])
-                #     self.ax3.draw_artist(self.line3[i])
-                # self.animation_fig.canvas.blit(self.ax1.bbox)
-                # self.animation_fig.canvas.blit(self.ax2.bbox)
-                # self.animation_fig.canvas.blit(self.ax3.bbox)
-                self.animation_fig.canvas.draw()
+                    self.ax3.draw_artist(self.line3[i])
+                self.animation_fig.canvas.blit(self.ax1.bbox)
+                self.animation_fig.canvas.blit(self.ax2.bbox)
+                self.animation_fig.canvas.blit(self.ax3.bbox)
+                # self.animation_fig.canvas.draw()
                 self.animation_fig.canvas.flush_events()
 
     def sample_actions_market_makers(self):
