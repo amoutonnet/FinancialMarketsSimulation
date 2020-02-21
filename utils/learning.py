@@ -4,6 +4,7 @@ from . import simulation
 
 
 def get_reward_market_makers(last_obs, new_obs):
+    # rew = new_obs['MSFT']['last_sales'] - last_obs['MSFT']['last_sales']
     pass
 
 
