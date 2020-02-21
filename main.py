@@ -25,7 +25,6 @@ def simulate(nb_steps, env, initial_obs_mm, initial_obs_d, verbose=0, animate=Tr
         actions_d = env.sample_actions_dealers()
         # actions_d = learning.get_actions_dealers()
         next_obs_mm, next_obs_d = env.step(actions_mm, actions_d, verbose, animate)
-        print(next_obs_d)
         reward_mm = learning.get_reward_market_makers(last_obs_mm, next_obs_mm)
         reward_d = learning.get_reward_dealers(last_obs_d, next_obs_d)
         learning.save_experience_market_makers(last_obs_mm, actions_mm, next_obs_mm, reward_mm)

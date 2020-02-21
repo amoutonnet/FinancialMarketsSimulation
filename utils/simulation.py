@@ -67,8 +67,8 @@ class MarketMakerAgent(Agent):
 
     def reset(self):
         self.portfolio = 0                                       # Its portfolio of stock for this company
-        self.sales = 0                                           # The number of stocks he sold last time step
-        self.purchases = 0                                       # The number of stocks he purchased last time step
+        self.last_sales = 0                                           # The number of stocks he sold last time step
+        self.last_purchases = 0                                       # The number of stocks he purchased last time step
         self.position = Position(self, 100, 0, 100, 0)           # Its position on the market, represented by a Position class
         self.cash = self.initial_cash                            # The cash of the market maker
 
@@ -84,9 +84,9 @@ class MarketMakerAgent(Agent):
         self.position = Position(self, action[0], self.portfolio, action[1], self.cash//action[1])
 
     def get_observation(self):
-        to_return = {'portfolio': self.portfolio, 'cash': self.cash, 'sales': self.sales, 'purchases': self.purchases}
-        self.sales = 0
-        self.purchases = 0
+        to_return = {'portfolio': self.portfolio, 'cash': self.cash, 'last_sales': self.last_sales, 'last_purchases': self.last_purchases}
+        self.last_sales = 0
+        self.last_purchases = 0
         return {**to_return, **{k:v for k,v in self.position.__dict__.items() if k!='market_maker'}}
 
     def __str__(self):
@@ -224,7 +224,7 @@ class ImmediateOrder(Order):
             self.contracted_by.portfolio[self.company.id_] -= nb_stock_transfered
             position.market_maker.cash -= total_of_transaction
             position.market_maker.portfolio += nb_stock_transfered
-            position.market_maker.purchases += 1
+            position.market_maker.last_purchases += 1
             position.max_bid -= nb_stock_transfered
             self.amount -= nb_stock_transfered
             if verbose:
@@ -249,7 +249,7 @@ class ImmediateOrder(Order):
             position.market_maker.cash += total_of_transaction
             position.market_maker.portfolio -= nb_stock_transfered
             position.max_ask -= nb_stock_transfered
-            position.market_maker.sales += 1
+            position.market_maker.last_sales += 1
             self.amount -= nb_stock_transfered
             if verbose:
                 print_to_output('Details: %s just bought %d %s stocks to %s for %.2f' % (self.contracted_by, nb_stock_transfered, self.company, position.market_maker, total_of_transaction))
