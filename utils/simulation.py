@@ -7,6 +7,10 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 matplotlib.use('TkAgg')
+
+# For Yida
+# matplotlib.use('Qt5Agg')
+
 # Importing useful libraries
 import sys
 from tqdm import tqdm
@@ -143,13 +147,13 @@ class DealerAgent(Agent):
             company = self.market.companies[action[1]]
             amount = action[2]
             response = ImmediateOrder(self.market, type_of_transaction, self, company, amount).fulfill_order(verbose)
-        return self.get_observation(response)
+        return self.get_observation(response, type_of_transaction)
 
-    def get_observation(self, last_transaction_amount=None):
+    def get_observation(self, last_transaction_amount=None, type_of_transaction=2):
         if last_transaction_amount is None:
-            return {**self.portfolio, 'cash': self.cash,'cannot_process': False, 'fully_fulfilled': False, 'last_transaction_amount': 0, 'last_transaction_cost': 0}
+            return {**self.portfolio, 'cash': self.cash,'cannot_process': False, 'fully_fulfilled': False, 'last_transaction_amount': 0, 'last_transaction_cost': 0, 'type_of_action': 2}
         else:
-            return {**self.portfolio, 'cash': self.cash, **last_transaction_amount}
+            return {**self.portfolio, 'cash': self.cash, **last_transaction_amount, 'type_of_action': type_of_transaction}
 
     def __str__(self):
         return ("Dealer ID%s" % self.id_).ljust(11, ' ')
@@ -406,8 +410,6 @@ class Market():
 
     def init_animation(self):
         self.animation_fig = plt.figure(figsize=(10, 8))
-        mngr = plt.get_current_fig_manager()
-        mngr.window.wm_geometry("+200+0")
         spec = gridspec.GridSpec(ncols=2, nrows=3, figure=self.animation_fig)
         self.ax1 = self.animation_fig.add_subplot(spec[0, :])
         self.ax2 = self.animation_fig.add_subplot(spec[1, 0])
@@ -486,8 +488,6 @@ class Market():
 
     def plot_final(self):
         fig = plt.figure(figsize=(10, 8))
-        mngr = plt.get_current_fig_manager()
-        mngr.window.wm_geometry("+200+0")
         spec = gridspec.GridSpec(ncols=2, nrows=3, figure=fig)
         ax1 = fig.add_subplot(spec[0, :])
         ax2 = fig.add_subplot(spec[1, 0])

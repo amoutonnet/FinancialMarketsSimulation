@@ -29,6 +29,7 @@ def simulate(nb_steps, env, initial_obs_mm, initial_obs_d, verbose=0, animate=Tr
         reward_d = learning.get_reward_dealers(last_obs_d, next_obs_d)
         learning.save_experience_market_makers(last_obs_mm, actions_mm, next_obs_mm, reward_mm)
         learning.save_experience_dealers(last_obs_d, actions_d, next_obs_d, reward_d)
+        last_obs_mm, last_obs_d = next_obs_mm, next_obs_d
     if plot_final:
         env.plot_final()
 
@@ -38,5 +39,5 @@ if __name__ == "__main__":
     env, initial_obs_mm, initial_obs_d = init_env(verbose=1)
     # Run the simulation for N steps
     N = 1000
-    simulate(N, env, initial_obs_mm, initial_obs_d, verbose=0, animate=False, plot_final=True)
+    simulate(N, env, initial_obs_mm, initial_obs_d, verbose=0, animate=True, plot_final=True)
     env.reset()
