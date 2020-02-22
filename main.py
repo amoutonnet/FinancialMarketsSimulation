@@ -39,5 +39,5 @@ if __name__ == "__main__":
     env, initial_obs_mm, initial_obs_d = init_env(verbose=1)
     # Run the simulation for N steps
     N = 1000
-    simulate(N, env, initial_obs_mm, initial_obs_d, verbose=0, animate=True, plot_final=True)
+    simulate(N, env, initial_obs_mm, initial_obs_d, verbose=0, animate=True, plot_final=False)
     env.reset()

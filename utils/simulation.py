@@ -6,9 +6,11 @@ import random
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+
 matplotlib.use('TkAgg')
 
-# For Yida
+# For Yida, uncomment the next line and comment the previous line
+
 # matplotlib.use('Qt5Agg')
 
 # Importing useful libraries
