@@ -57,7 +57,7 @@ Here are a few assumptions about dealers.
 
 ### Time Steps
 
-Here is the progess of each time step:
+Here is the progress of each time step:
 
 1. Market makers make the market.
 2. Dealers take actions. Each trading decision creates an order summarizing the details of the incoming transaction.
