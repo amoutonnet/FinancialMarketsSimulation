@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 import sys
 
 
-def init_env(nb_companies=10, initial_nb_shares=1000, nb_dealers=50, initial_dealer_budget=10000, initial_market_maker_budget=10000, verbose=0):
+def init_env(nb_companies=10, initial_nb_shares=1000, nb_dealers=50, initial_dealer_budget=10000, verbose=0):
     assert(initial_nb_shares % nb_dealers == 0)
-    env = simulation.Market()
+    env =
     initial_obs_mm = env.create_companies('init.csv', nb_companies, initial_nb_shares, initial_market_maker_budget, verbose)
     initial_obs_d = env.create_dealers(nb_dealers, initial_dealer_budget, initial_nb_shares // nb_dealers, verbose)
     return env, initial_obs_mm, initial_obs_d
@@ -36,7 +36,7 @@ def simulate(nb_steps, env, initial_obs_mm, initial_obs_d, verbose=0, animate=Tr
 
 if __name__ == "__main__":
     # Initialize the market
-    env, initial_obs_mm, initial_obs_d = init_env(verbose=1)
+    env = simulation.Market(nb_companies=10, initial_nb_shares=1000, nb_dealers=50, initial_dealer_budget=10000, window=10)
     # Run the simulation for N steps
     N = 1000
     simulate(N, env, initial_obs_mm, initial_obs_d, verbose=0, animate=False, plot_final=True)

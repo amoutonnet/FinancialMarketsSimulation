@@ -64,9 +64,9 @@ class MarketMakerAgent(Agent):
     supply and demand equilibrium.
     """
 
-    def __init__(self, id_, name, market, initial_budget, company):
+    def __init__(self, id_, name, market, company):
         super().__init__(id_, name, market)
-        self.initial_cash = initial_budget
+        self.initial_cash = float('inf')
         self.company = company      # The company he operates for
         self.company.set_market_maker(self)
         self.reset()
@@ -279,10 +279,12 @@ class Market():
     dealers evolving in it
     """
 
-    def __init__(self):
+    def __init__(self, nb_companies=10, initial_nb_shares=1000, nb_dealers=50, initial_dealer_budget=10000, verbose=0):
         self.market_makers = {}       # A dictionnary containing market makers
         self.dealers = {}             # A dictionnary containing dealers
         self.companies = {}           # A dictionnary containing companies
+        self.create_companies('init.csv', nb_companies, initial_nb_shares, verbose)
+        self.create_dealers(nb_dealers, initial_dealer_budget, initial_nb_shares // nb_dealers, verbose)
         # A few dictionnaries to track the simulation
         self.asks = {}
         self.bids = {}
@@ -294,7 +296,7 @@ class Market():
         self.animation_started = False
         self.size_of_animation = 0
 
-    def create_companies(self, file, nb_companies, initial_nb_shares, initial_market_maker_budget, verbose):
+    def create_companies(self, file, nb_companies, initial_nb_shares, verbose):
         """ This function is used to create a company within the market """
         company_data = pd.read_csv(file)
         assert(nb_companies > 0 and nb_companies < len(company_data) and initial_nb_shares > 0 and initial_market_maker_budget > 0)
@@ -307,7 +309,7 @@ class Market():
             id_company = j[1]
             if id_company not in self.companies.keys():
                 self.companies[id_company] = Company(id_company, name, self, initial_nb_shares)
-                self.market_makers[id_company] = MarketMakerAgent(id_company, 'Market Maker %s' % id_company, self, initial_market_maker_budget, self.companies[id_company])
+                self.market_makers[id_company] = MarketMakerAgent(id_company, 'Market Maker %s' % id_company, self, self.companies[id_company])
                 self.market_makers_cash[id_company] = [initial_market_maker_budget]
                 self.market_makers_portfolio[id_company] = [0]
                 self.asks[id_company] = [100]

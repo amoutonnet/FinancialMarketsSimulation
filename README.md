@@ -35,6 +35,7 @@ Here are the main points of the simulation. There is an initialization phase, an
 - We create a given number ***n<sub>d</sub>*** of dealers
 - Each dealer is given ***m/n<sub>d</sub>*** stocks of each company (***m*** is a multiple of ***n<sub>d</sub>***)
 - Each dealer is given an amount ***c*** of cash
+- We initialize the price of each stock on the market to ***p***
 
 ### Market Makers Global Description
 
