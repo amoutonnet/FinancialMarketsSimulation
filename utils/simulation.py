@@ -405,8 +405,8 @@ class Market():
         plt.show(block=False)
 
     def step_animation(self):
-        x = np.arange(self.max_steps - self.window, self.max_steps, 1)
-        if self.max_steps == self.window:
+        x = np.arange(self.max_steps - self.window_size, self.max_steps, 1)
+        if self.max_steps == self.window_size:
             for id_mm in self.market_makers:
                 for i,j in [(0,'ask_price'), (2,'portfolio')]:
                     self.axes[i].plot(x, self.window_data[self.data_idx['%s_%d' % (j, id_mm)]][:-1], label=self.market_makers[id_mm].short_name, alpha=0.8)

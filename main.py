@@ -28,10 +28,10 @@ def simulate(nb_steps, env, verbose=0, animate=True, plot_final=True):
 
 
 if __name__ == "__main__":
-    N = 1000
+    N = 2
     animation = False
     plot_final = True
-    verbose = 0
+    verbose = 2
     nb_companies = 10
     initial_nb_shares = 1000
     nb_dealers = 50
