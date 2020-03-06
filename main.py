@@ -7,37 +7,40 @@ import matplotlib.pyplot as plt
 import sys
 
 
-def init_env(nb_companies=10, initial_nb_shares=1000, nb_dealers=50, initial_dealer_budget=10000, verbose=0):
-    assert(initial_nb_shares % nb_dealers == 0)
-    env =
-    initial_obs_mm = env.create_companies('init.csv', nb_companies, initial_nb_shares, initial_market_maker_budget, verbose)
-    initial_obs_d = env.create_dealers(nb_dealers, initial_dealer_budget, initial_nb_shares // nb_dealers, verbose)
-    return env, initial_obs_mm, initial_obs_d
-
-
-def simulate(nb_steps, env, initial_obs_mm, initial_obs_d, verbose=0, animate=True, plot_final=True):
-    simulation.print_to_output(title='Simulation')
+def simulate(nb_steps, env, verbose=0, animate=True, plot_final=True):
+    simulation.print_to_output(title='Simulation Starting')
     horizon = range(nb_steps) if verbose > 0 else tqdm(range(nb_steps), total=nb_steps)
-    last_obs_mm, last_obs_d = initial_obs_mm, initial_obs_d
-    for _ in horizon:
-        actions_mm = env.sample_actions_market_makers()
-        # actions_mm = learning.get_actions_market_makers()
-        actions_d = env.sample_actions_dealers()
-        # actions_d = learning.get_actions_dealers()
-        next_obs_mm, next_obs_d = env.step(actions_mm, actions_d, verbose, animate)
-        reward_mm = learning.get_reward_market_makers(last_obs_mm, next_obs_mm)
-        reward_d = learning.get_reward_dealers(last_obs_d, next_obs_d)
-        learning.save_experience_market_makers(last_obs_mm, actions_mm, next_obs_mm, reward_mm)
-        learning.save_experience_dealers(last_obs_d, actions_d, next_obs_d, reward_d)
-        last_obs_mm, last_obs_d = next_obs_mm, next_obs_d
+    if animate:
+        env.init_animation()
+    for i in horizon:
+        actions_mm = learning.get_actions_market_makers(env)
+        env.settle_positions(actions_mm, verbose)
+        if i > 0:
+            learning.train_dealers(env, actions_d)
+        actions_d = learning.get_actions_dealers(env)
+        env.settle_trading(actions_d, verbose)
+        learning.train_market_makers(env, actions_mm)
+        if animate:
+            env.step_animation()
+        env.prepare_next_step()
     if plot_final:
         env.plot_final()
 
 
 if __name__ == "__main__":
-    # Initialize the market
-    env = simulation.Market(nb_companies=10, initial_nb_shares=1000, nb_dealers=50, initial_dealer_budget=10000, window=10)
-    # Run the simulation for N steps
     N = 1000
-    simulate(N, env, initial_obs_mm, initial_obs_d, verbose=0, animate=False, plot_final=True)
+    animation = False
+    plot_final = True
+    verbose = 0
+    nb_companies = 10
+    initial_nb_shares = 1000
+    nb_dealers = 50
+    initial_dealer_budget = 10000
+    initial_price = 100
+    window_size = 20
+    spread = 5
+    # Initialize the market
+    env = simulation.Market(nb_companies, initial_nb_shares, nb_dealers, initial_dealer_budget, initial_price, window_size, spread, verbose=1, follow_hist_data=plot_final)
+    # Run the simulation for N steps
+    simulate(N, env, verbose=verbose, animate=animation, plot_final=plot_final)
     env.reset()
