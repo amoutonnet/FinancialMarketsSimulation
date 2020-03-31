@@ -2,12 +2,13 @@ import numpy as np
 import random
 from . import simulation
 import sys
+np.set_printoptions(suppress=True, linewidth=1000, threshold=float('inf'))
 
 
 def get_reward_market_makers(observation):
     """
     observation is an array of size (4, window_size + 1)
-    Rows represent the state of some caracteristics during the window_size last time steps plus the current one
+    Rows represent the state of some characteristics during the window_size last time steps plus the current one
 
     Here are the descriptions of the rows:
     - The 1st one is the ask price for the time step
@@ -24,7 +25,7 @@ def get_reward_market_makers(observation):
 def get_reward_dealers(observation):
     """
     observation is an array of size (3*nb_companies + 6, window_size + 1)
-    Rows represent the state of some caracteristics during the window_size last time steps plus the current one.
+    Rows represent the state of some characteristics during the window_size last time steps plus the current one.
     Here the current time steps is not fully updated as the training phase occurs when the step is not finished.
     Only the state of the market (1st 2*nb_companies rows), the portfolio value and the global wealth is updated.
     Therefore you should only consider the first window_size columns as the last state, the last column will be used
@@ -54,31 +55,17 @@ def get_reward_dealers(observation):
     return reward
 
 
-def save_experience_market_makers(obs, action, reward):
-    pass
-
-
-def save_experience_dealers(obs, action, reward):
-    pass
-
-
-def get_actions_market_makers(env, epsilon=1):
+def get_actions_market_makers(env):
     actions = [None] * len(env.market_makers)
     for id_mm, mm in env.market_makers.items():
-        if np.random.rand() <= epsilon:
-            actions[id_mm] = mm.sample_action()
-        else:
-            observation = mm.get_observation()
+        actions[id_mm] = mm.sample_action()
     return actions
 
 
-def get_actions_dealers(env, epsilon=1):
+def get_actions_dealers(env):
     actions = [None] * len(env.dealers)
     for id_d, d in env.dealers.items():
-        if np.random.rand() <= epsilon:
-            actions[id_d] = d.sample_action()
-        else:
-            observation = d.get_observation()
+        actions[id_d] = d.sample_action()
     return actions
 
 
@@ -86,11 +73,9 @@ def train_dealers(env, action):
     for d in env.dealers.values():
         observation = d.get_observation()
         reward = get_reward_dealers(observation)
-        save_experience_dealers(observation, action, reward)
 
 
 def train_market_makers(env, action):
     for mm in env.market_makers.values():
         observation = mm.get_observation()
         reward = get_reward_market_makers(observation)
-        save_experience_market_makers(observation, action, reward)
