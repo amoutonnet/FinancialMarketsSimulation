@@ -343,6 +343,7 @@ class Market():
             self.dealers[id_d].trade(action)
         while len(self.selling_orders):
             self.fulfill_order(*self.selling_orders.pop(), verbose > 1)
+        random.shuffle(self.buying_orders)
         while len(self.buying_orders):
             self.fulfill_order(*self.buying_orders.pop(), verbose > 1)
 

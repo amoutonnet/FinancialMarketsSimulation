@@ -32,9 +32,9 @@ if __name__ == "__main__":
     animation = False
     plot_final = True
     verbose = 0
-    nb_companies = 1
+    nb_companies = 5
     initial_nb_shares = 1000
-    nb_dealers = 5
+    nb_dealers = 20
     initial_dealer_budget = 10000
     initial_price = 100
     window_size = 5
