@@ -19,6 +19,8 @@ import sys
 from tqdm import tqdm
 
 MAX_AMOUNT = 7
+MAX_ASK_PRICE = 1e6
+
 
 
 def print_to_output(message=None, title=None, overoneline=True, verbose=True):
@@ -103,9 +105,7 @@ class MarketMakerAgent(Agent):
         """
         super().__init__(id_, name, market)
         self.short_name = short_name
-        self.mask = self.id_*[False]*len(self.market.market_makers_characs) +\
-                    [True]*len(self.market.market_makers_characs) +\
-                    (self.market.nb_companies-self.id_-1)*[False]*len(self.market.market_makers_characs) +\
+        self.mask = [True]*self.market.nb_companies*len(self.market.market_makers_characs) +\
                     self.market.nb_dealers*(
                         self.id_*[False]*len(self.market.dealers_characs_per_company)+\
                         [False, True, True]+\
@@ -113,18 +113,22 @@ class MarketMakerAgent(Agent):
                         [False]*len(self.market.dealers_characs)
                     )
 
-    def take_action(self, mu=0, sigma=1):
+    def take_action(self, mu=None, sigma=None):
         """
         The action he takes moves the market by a certain value. Concretely, he draws this value according to
-        a gaussian distribution whose parameters he can manage. This gaussian distribution is truncated
+        a gaussian distribution whose parameters he can manage. This gaussian distribution is clipped
         to avoid ask prices being negative.
         """
-        return scipy.stats.truncnorm.rvs(a=(-self.get_charac('ask_price') - mu) / sigma, b=np.inf, loc=mu, scale=sigma, size=1)[0]
+        if mu is None:
+            mu = self.market.initial_price
+            sigma = mu/5
+        a = np.random.normal(mu, sigma)
+        return max(min(a, MAX_ASK_PRICE), 0)
 
     def sample_action(self):
         """
         This function returns a sample of an action (i.e. a value drawn according to a truncated 
-        gaussian distribution of mean 0 and scale 1)
+        gaussian distribution of mean initial_price and scale initial_price/5)
         """
         return self.take_action()
 
@@ -132,13 +136,17 @@ class MarketMakerAgent(Agent):
         """
         This function is called to process the action taken
         """
-        self.add_to_charac('ask_price', action)
+        self.set_charac('ask_price', action)
 
     def get_observation(self):
         """
         This function returns the part of the environment the agent has access to when taking a decision.
         """
-        return self.market.window_data[self.mask]
+        to_return = self.market.window_data[:, :-1][self.mask]
+        to_return[:self.market.nb_companies*len(self.market.market_makers_characs)] = np.roll(to_return[:self.market.nb_companies*len(self.market.market_makers_characs)], -2*self.id_, axis=0)
+        return to_return
+        
+
 
     def __str__(self):
         return self.name
@@ -220,7 +228,9 @@ class DealerAgent(Agent):
         """
         This function returns the part of the environment the agent has access to when taking a decision.
         """
-        return self.market.window_data[self.mask]
+        to_return = self.market.window_data[self.mask]
+        to_return[:self.market.nb_companies*len(self.market.market_makers_characs)][0:self.market.nb_companies*len(self.market.market_makers_characs):len(self.market.market_makers_characs)] = np.roll(to_return[:self.market.nb_companies*len(self.market.market_makers_characs)][0:self.market.nb_companies*len(self.market.market_makers_characs):len(self.market.market_makers_characs)], -1, axis=1)
+        return to_return[:, :-1]
 
     def __str__(self):
         return self.name.ljust(11, ' ')
@@ -234,7 +244,7 @@ class Market():
     dealers evolving in it
     """
 
-    def __init__(self, nb_companies, day_length, initial_nb_shares, nb_dealers, initial_dealer_budget, initial_price, window_size, spread, verbose=0, follow_hist_data=False):
+    def __init__(self, nb_companies, nb_dealers, day_length, initial_nb_shares_per_dealer_per_company, initial_dealer_budget, initial_price, window_size, spread):
         self.market_makers = {}       # A dictionnary containing market makers
         self.dealers = {}             # A dictionnary containing dealers
         self.companies = []
@@ -242,16 +252,17 @@ class Market():
         self.selling_orders = []
         self.nb_companies = nb_companies
         self.nb_dealers = nb_dealers
+        self.initial_price = initial_price
         self.day_length = day_length
         self.spread = spread
         self.market_makers_characs = [
             (initial_price, 'ask_price'),
             (0, 'portfolio'),
         ]
-        initial_nb_shares_per_dealer = initial_nb_shares // nb_dealers
-        initial_portfolio_value = initial_nb_shares_per_dealer*initial_price*self.nb_companies
+        initial_nb_shares_per_dealer_per_company = initial_nb_shares_per_dealer_per_company
+        initial_portfolio_value = initial_nb_shares_per_dealer_per_company*initial_price*self.nb_companies
         self.dealers_characs_per_company = [
-            (initial_nb_shares_per_dealer, 'portfolio_dealer'),
+            (initial_nb_shares_per_dealer_per_company, 'portfolio_dealer'),
             (0, 'amount_traded'),
             (0, 'transaction_executed')
         ]
@@ -260,24 +271,22 @@ class Market():
             (initial_portfolio_value, 'portfolio_value'),
         ]
 
-        assert(nb_dealers < initial_nb_shares and initial_nb_shares % nb_dealers == 0)
-        assert(nb_dealers > 0 and initial_dealer_budget > 0 and initial_nb_shares_per_dealer > 0)
+        assert(nb_dealers > 0 and initial_dealer_budget > 0 and initial_nb_shares_per_dealer_per_company > 0)
 
         self.data_size = nb_dealers * (nb_companies*len(self.dealers_characs_per_company) + len(self.dealers_characs)) +\
                          nb_companies * len(self.market_makers_characs)
         self.window_data = np.zeros((self.data_size, window_size+1))
+        self.window_data = np.zeros((self.data_size, window_size+1))
         self.data_idx = {'max_count': 0}
         self.window_size = window_size
-        self.follow_hist_data = follow_hist_data
         self.max_steps = window_size
-        self.create_market_makers('init.csv', nb_companies, verbose)
-        self.create_dealers(nb_dealers, verbose)
+        self.create_market_makers('init.csv', nb_companies)
+        self.create_dealers(nb_dealers)
         self.initial_window_data = copy.deepcopy(self.window_data)
-        if self.follow_hist_data:
-            self.historical_data = np.zeros((self.data_size, day_length+window_size))
-            self.historical_data[:, 0:window_size] = self.window_data[:, :-1]
+        self.historical_data = np.zeros((self.data_size, day_length+window_size))
+        self.historical_data[:, 0:window_size] = self.window_data[:, :-1]
 
-    def create_market_makers(self, file, nb_companies, verbose):
+    def create_market_makers(self, file, nb_companies, verbose=True):
         """ This function is used to create a market makers and its associated market maker within the market """
         company_data = pd.read_csv(file)
         assert(nb_companies > 0 and nb_companies < len(company_data))
@@ -298,7 +307,7 @@ class Market():
                 print_to_output('You tried to create two identical companies', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
                 sys.exit()
 
-    def create_dealers(self, nb_dealers, verbose):
+    def create_dealers(self, nb_dealers, verbose=True):
         for id_ in range(nb_dealers):
             self.dealers[id_] = DealerAgent(id_, 'Dealer ID%s' % id_, self)
             for id_mm in self.market_makers:
@@ -319,14 +328,43 @@ class Market():
 
     def prepare_next_step(self):
         self.window_data[:, :-1] = self.window_data[:, 1:]
-        if self.follow_hist_data:
-            self.historical_data[:, self.max_steps] = self.window_data[:, -2]
+        self.historical_data[:, self.max_steps] = self.window_data[:, -2]
         current_ask_prices = self.get_current_ask_prices()
         for id_d in range(self.nb_dealers):
             self.dealers[id_d].set_charac('portfolio_value', np.dot(self.dealers[id_d].get_portfolio(), current_ask_prices.T))
         self.max_steps += 1
 
-    def settle_positions(self, actions, verbose):
+    def get_observations_market_makers(self):
+        return np.array(list(map(lambda mm: mm.get_observation(), self.market_makers.values())))
+
+    def get_observations_dealers(self):
+        return np.array(list(map(lambda d: d.get_observation(), self.dealers.values())))
+
+    def get_rewards_market_makers(self, observations):
+        """
+        This function returns the current liquidity of the market for the every company
+        """
+        def get_reward(obs):
+            current_obs = obs[:, -1][self.nb_companies*len(self.market_makers_characs):]
+            return np.sum(np.dot(current_obs[::2], current_obs[1::2].T))
+
+        return list(map(get_reward, observations))
+    
+    def get_rewards_dealers(self, observations):
+        """
+        This function returns the difference in global wealth between the end of the last time step in the end of this new one for every dealer
+        """
+        def get_reward(obs):
+            current_obs = obs[:, -1]
+            last_obs = obs[:, -2]
+            cash_diff = current_obs[-1] - last_obs[-1]
+            portfolio_diff = np.dot(current_obs[:self.nb_companies*len(self.market_makers_characs)][::2], current_obs[self.nb_companies*len(self.market_makers_characs):-1][::3].T) -\
+                np.dot(last_obs[:self.nb_companies*len(self.market_makers_characs)][::2], last_obs[self.nb_companies*len(self.market_makers_characs):-1][::3].T)
+            return cash_diff + portfolio_diff
+
+        return list(map(get_reward, observations))
+
+    def settle_positions(self, actions, verbose=0):
         if len(actions) != self.nb_companies:
             print_to_output('Every market maker should have an action to do, your action dictionnary is incomplete', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
             sys.exit()
@@ -334,7 +372,7 @@ class Market():
             self.market_makers[i].make_market(actions[i])
         print_to_output(self, 'Positions of Market Makers', overoneline=False, verbose=verbose>0)
 
-    def settle_trading(self, actions, verbose):
+    def settle_trading(self, actions, verbose=0):
         if len(actions) != self.nb_dealers:
             print_to_output('Every dealer should have an action to do, your action dictionnary is incomplete', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
             sys.exit()
@@ -372,8 +410,7 @@ class Market():
 
     def reset(self):
         self.window_data = copy.deepcopy(self.initial_window_data)
-        if self.follow_hist_data:
-            self.historical_data[:, 0:self.window_size] = self.window_data[:, :-1]
+        self.historical_data[:, 0:self.window_size] = self.window_data[:, :-1]
 
     def create_figure(self):
         self.animation_fig = plt.figure(figsize=(10, 8))
@@ -436,24 +473,23 @@ class Market():
             self.animation_fig.canvas.draw()
             self.animation_fig.canvas.flush_events()
 
-    def plot_final(self):
-        if self.follow_hist_data:
-            self.create_figure()
-            x = np.arange(0, self.day_length, 1)
-            for id_mm in self.market_makers:
-                for i,j in [(0,'ask_price'), (2,'portfolio')]:
-                    self.axes[i].plot(x, self.historical_data[self.data_idx['%s_%d' % (j, id_mm)]][self.window_size:], label=self.market_makers[id_mm].short_name, alpha=0.8)
-            for id_d in self.dealers:
-                for i,j in [(1,'cash_dealer'), (3,'portfolio_value')]:
-                    self.axes[i].plot(x, self.historical_data[self.data_idx['%s_%d' % (j, id_d)]][self.window_size:], alpha=0.8)
-                self.axes[4].plot(x, self.historical_data[self.data_idx['cash_dealer_%d' % id_d]][self.window_size:] + self.historical_data[self.data_idx['portfolio_value_%d' % id_d]][self.window_size:], alpha=0.8)
-            self.axes[0].legend(ncol=10, loc='upper center', bbox_to_anchor=(0.5, 1.22), prop={'size': 9})
-            for ax in self.axes:
-                ax.set_ylim([min(0, ax.get_ylim()[0]), ax.get_ylim()[1]])
-            self.animation_fig.tight_layout()
-            plt.show()
-        else:
-            print_to_output('You decided not to follow historical data, therefore you cannot vizualise it', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
+    def plot_final(self, title="Final Plot"):
+        self.create_figure()
+        x = np.arange(0, self.day_length, 1)
+        for id_mm in self.market_makers:
+            for i,j in [(0,'ask_price'), (2,'portfolio')]:
+                self.axes[i].plot(x, self.historical_data[self.data_idx['%s_%d' % (j, id_mm)]][self.window_size:], label=self.market_makers[id_mm].short_name, alpha=0.8)
+        for id_d in self.dealers:
+            for i,j in [(1,'cash_dealer'), (3,'portfolio_value')]:
+                self.axes[i].plot(x, self.historical_data[self.data_idx['%s_%d' % (j, id_d)]][self.window_size:], alpha=0.8)
+            self.axes[4].plot(x, self.historical_data[self.data_idx['cash_dealer_%d' % id_d]][self.window_size:] + self.historical_data[self.data_idx['portfolio_value_%d' % id_d]][self.window_size:], alpha=0.8)
+        self.axes[0].legend(ncol=10, loc='upper center', bbox_to_anchor=(0.5, 1.22), prop={'size': 9})
+        for ax in self.axes:
+            ax.set_ylim([min(0, ax.get_ylim()[0]), ax.get_ylim()[1]])
+        self.animation_fig.tight_layout()
+        self.animation_fig.subplots_adjust(top=0.87)
+        self.animation_fig.suptitle(title, fontsize=15, x=0.54)
+        plt.show()
 
     def __str__(self):
         to_print = ''
