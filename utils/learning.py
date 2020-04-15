@@ -153,8 +153,7 @@ class MarketMakerRL(RLAgent):
         clipped_actions = np.clip(actions, self.action_space_lower_limit, self.action_space_upper_limit)
         return clipped_actions
 
-    def learn(self):
-
+    def learn(self, epochs=1, batch_size=8):
         def reshape_firsts_two_dims(x):
             if x.shape == 2:
                 return x.reshape(-1)
@@ -162,18 +161,18 @@ class MarketMakerRL(RLAgent):
                 return x.reshape(-1, *x.shape[2:])
 
         # We retrieve all states, actions and reward the agent got during the episode from the memory
-        observations, actions, rewards, next_observations = map(lambda x: reshape_firsts_two_dims(np.array(x)), zip(*self.memory))
+        observations, actions, rewards, next_observations = map(lambda x: reshape_firsts_two_dims(np.array(x, dtype=np.float32)), zip(*self.memory))
         # We process the states values with the critic network
         critic_values = self.critic(observations).numpy()
         critic_next_values = self.critic(next_observations).numpy()
         # We get the target reward
-        targets = rewards + self.gamma * np.squeeze(critic_next_values) * np.invert(observations)
+        targets = rewards + self.gamma * np.squeeze(critic_next_values) * np.eye(1, len(rewards), k=0)[0]
         # We get the advantage (difference between the discounted reward and the baseline)
         advantages = targets - np.squeeze(critic_values)
         # We normalize advantages
         advantages = normalize(advantages)
-        self.loss_actor = self.actor.train_on_batch([observations, advantages], actions)
-        self.loss_critic = self.critic.train_on_batch(observations, targets)
+        self.loss_actor = self.actor.fit([observations, advantages], actions, batch_size, epochs, verbose=0)
+        self.loss_critic = self.critic.fit(observations, targets, batch_size, epochs, verbose=0)
         self.memory.clear()
 
 
@@ -201,13 +200,13 @@ class DealerRL(RLAgent):
         self.actor = tf.keras.Model(inputs=[obs, advantages], outputs=probability_distrib_parameters, name='Dealers_Actor')
 
         def actor_loss(y_true, y_pred):
-            out = tf.keras.backend.clip(y_pred, DELTA, 1)
-            log_lik = y_true * tf.keras.backend.log(out)
-            old_log_lik = tf.keras.backend.stop_gradient(log_lik)
+            out = K.clip(y_pred, DELTA, 1)
+            log_lik = y_true * K.log(out)
+            old_log_lik = K.stop_gradient(log_lik)
             advantages_with_entropy = advantages - self.lambd * old_log_lik
-            ratio = tf.keras.backend.sum(tf.keras.backend.exp(log_lik - old_log_lik), axis=-1)
-            clipped_ratio = tf.keras.backend.clip(ratio, 1 - self.epsilon, 1 + self.epsilon)
-            return -tf.keras.backend.mean(tf.keras.backend.minimum(ratio * advantages_with_entropy, clipped_ratio * advantages_with_entropy), keepdims=True)
+            ratio = K.sum(K.exp(log_lik - old_log_lik), axis=-1)
+            clipped_ratio = K.clip(ratio, 1 - self.epsilon, 1 + self.epsilon)
+            return -K.mean(K.minimum(ratio * advantages_with_entropy, clipped_ratio * advantages_with_entropy), keepdims=True)
 
         self.actor.compile(loss=actor_loss, optimizer=self.optimizer_actor, experimental_run_tf_function=False)
 
@@ -230,25 +229,28 @@ class DealerRL(RLAgent):
         cumsums = np.cumsum(probabilities, axis=-1)
         unif_draws = np.random.rand(cumsums.shape[0], cumsums.shape[1], 1)
         actions = (unif_draws < cumsums).argmax(axis=-1)
-        return actions
+        return actions - self.max_amount
 
-    def learn(self):
+    def learn(self, epochs=1, batch_size=8):
         def reshape_firsts_two_dims(x):
             if x.shape == 2:
                 return x.reshape(-1)
             else:
                 return x.reshape(-1, *x.shape[2:])
         # We retrieve all states, actions and reward the agent got during the episode from the memory
-        observations, actions, rewards, next_observations = map(lambda x: reshape_firsts_two_dims(np.array(x)), zip(*self.memory))
+        observations, actions, rewards, next_observations = map(lambda x: reshape_firsts_two_dims(np.array(x, dtype=np.float32)), zip(*self.memory))
         # We process the states values with the critic network
         critic_values = self.critic(observations).numpy()
         critic_next_values = self.critic(next_observations).numpy()
+        # We one-hot encode actions
+        actions += self.max_amount
+        actions_list = [tf.keras.utils.to_categorical(actions[:, id_], num_classes=self.action_space_shape[1]) for id_ in range(self.action_space_shape[0])]
         # We get the target reward
-        targets = rewards + self.gamma * np.squeeze(critic_next_values) * np.invert(observations)
+        targets = rewards + self.gamma * np.squeeze(critic_next_values) * np.eye(1, len(rewards), k=0)[0]
         # We get the advantage (difference between the discounted reward and the baseline)
         advantages = targets - np.squeeze(critic_values)
         # We normalize advantages
         advantages = normalize(advantages)
-        self.loss_actor = self.actor.train_on_batch([observations, advantages], actions)
-        self.loss_critic = self.critic.train_on_batch(observations, targets)
+        self.loss_actor = self.actor.fit([observations, advantages], actions_list, batch_size, epochs, verbose=0)
+        self.loss_critic = self.critic.fit(observations, targets, batch_size, epochs, verbose=0)
         self.memory.clear()

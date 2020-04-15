@@ -68,6 +68,7 @@ class Simulation():
             self.env.plot_final('Random Simulated Trading Day')
 
     def train(self, max_episodes=100):
+        utils.print_to_output(title='Training Starting')
         ep = 0
         while ep < max_episodes:
             self.env.reset()
