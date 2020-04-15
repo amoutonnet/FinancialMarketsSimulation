@@ -8,6 +8,7 @@ import copy
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from . import utils
 matplotlib.use('TkAgg')
 
 # For Yida, uncomment the next line and comment the previous line
@@ -20,35 +21,7 @@ from tqdm import tqdm
 
 MAX_AMOUNT = 7
 MAX_ASK_PRICE = 1e6
-
-
-
-def print_to_output(message=None, title=None, overoneline=True, verbose=True):
-    """
-    This function is used to simplify the printing task. You can
-    print a message with a title, over one line or not for lists.
-    """
-    if verbose:
-        # We print the title between '----'
-        if title is not None:
-            print('\n' + title.center(70, '-')+'\n')
-        # We print the message
-        if message is not None:
-            # Lists have particular treatment
-            if isinstance(message, list):
-                # Either printed over one line
-                if overoneline:
-                    to_print = ''
-                    for i in message:
-                        to_print += '%s | ' % str(i)
-                    print(to_print[:-3])
-                # Or not
-                else:
-                    for i in message:
-                        print(i)
-            else:
-                print(message)
-
+DELTA = 1e-8
 
 class Agent():
     """
@@ -113,26 +86,17 @@ class MarketMakerAgent(Agent):
                         [False]*len(self.market.dealers_characs)
                     )
 
-    def take_action(self, mu=None, sigma=None):
-        """
-        The action he takes moves the market by a certain value. Concretely, he draws this value according to
-        a gaussian distribution whose parameters he can manage. This gaussian distribution is clipped
-        to avoid ask prices being negative.
-        """
-        if mu is None:
-            mu = self.market.initial_price
-            sigma = mu/5
-        a = np.random.normal(mu, sigma)
-        return max(min(a, MAX_ASK_PRICE), 0)
-
     def sample_action(self):
         """
         This function returns a sample of an action (i.e. a value drawn according to a truncated 
         gaussian distribution of mean initial_price and scale initial_price/5)
         """
-        return self.take_action()
+        mu = self.market.initial_price
+        sigma = mu/5
+        a = np.random.normal(mu, sigma)
+        return max(min(a, MAX_ASK_PRICE), 0)
 
-    def make_market(self, action):
+    def take_action(self, action):
         """
         This function is called to process the action taken
         """
@@ -177,28 +141,18 @@ class DealerAgent(Agent):
     def set_starting_data_idx(self):
         self.starting_data_idx = self.market.data_idx['portfolio_dealer_0_%d' % self.id_]
 
-    def get_action(self, p=None):
-        """
-        The action he takes is basically choosing an amount to trade for each companies. This amount
-        is drawn randomly between [|-MAX_AMOUNT, MAX_AMOUNT|], he can manage the weights (i.e. the 
-        probability of drawing a particular number in this interval). It returns a 1D array with the
-        amount of company i he wants to trade at index i
-        """
-        if p is None:
-            p = np.array([[0.05]*MAX_AMOUNT+[0.3]+[0.05]*MAX_AMOUNT]*self.market.nb_companies)
-        c = p.cumsum(axis=1)
-        u = np.random.rand(len(c), 1)
-        return (u < c).argmax(axis=1) - MAX_AMOUNT
-
     def sample_action(self):
         """
         This function returns a sample of an action. For each company, the amount to trade is draw
         randomly with an equal chance of drawing something positive and negative, and a chance of 30%
         of drawing an amount of 0 (i.e. do not trade)
         """
-        return self.get_action()
+        p = np.array([[0.05]*MAX_AMOUNT+[0.3]+[0.05]*MAX_AMOUNT]*self.market.nb_companies)
+        c = p.cumsum(axis=1)
+        u = np.random.rand(len(c), 1)
+        return (u < c).argmax(axis=1) - MAX_AMOUNT
 
-    def trade(self, actions):
+    def take_action(self, actions):
         """
         This function is called to place the orders based on the action taken
         """
@@ -275,22 +229,21 @@ class Market():
 
         self.data_size = nb_dealers * (nb_companies*len(self.dealers_characs_per_company) + len(self.dealers_characs)) +\
                          nb_companies * len(self.market_makers_characs)
-        self.window_data = np.zeros((self.data_size, window_size+1))
-        self.window_data = np.zeros((self.data_size, window_size+1))
+        self.window_data = np.zeros((self.data_size, window_size+1), dtype=np.float32)
         self.data_idx = {'max_count': 0}
         self.window_size = window_size
         self.max_steps = window_size
         self.create_market_makers('init.csv', nb_companies)
         self.create_dealers(nb_dealers)
         self.initial_window_data = copy.deepcopy(self.window_data)
-        self.historical_data = np.zeros((self.data_size, day_length+window_size))
+        self.historical_data = np.zeros((self.data_size, day_length+window_size), dtype=np.float32)
         self.historical_data[:, 0:window_size] = self.window_data[:, :-1]
 
     def create_market_makers(self, file, nb_companies, verbose=True):
         """ This function is used to create a market makers and its associated market maker within the market """
         company_data = pd.read_csv(file)
         assert(nb_companies > 0 and nb_companies < len(company_data))
-        print_to_output(title='Created Companies and Market Makers', verbose=verbose)
+        utils.print_to_output(title='Created Companies and Market Makers', verbose=verbose)
         for (_, j) in company_data[:nb_companies].iterrows():
             name = j[0]
             short_name = j[1]
@@ -302,9 +255,9 @@ class Market():
                     self.data_idx['%s_%d' % (charac[1], id_mm)] = self.data_idx['max_count'] + idx
                     self.window_data[self.data_idx['%s_%d' % (charac[1], id_mm)]] = charac[0]
                 self.data_idx['max_count'] += len(self.market_makers_characs)
-                print_to_output('%s (%s)' % (name, short_name), verbose=verbose)
+                utils.print_to_output('%s (%s)' % (name, short_name), verbose=verbose)
             else:
-                print_to_output('You tried to create two identical companies', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
+                utils.print_to_output('You tried to create two identical companies', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
                 sys.exit()
 
     def create_dealers(self, nb_dealers, verbose=True):
@@ -321,7 +274,19 @@ class Market():
                 self.window_data[self.data_idx['%s_%d' % (charac[1], id_)]] = charac[0]
             self.data_idx['max_count'] += len(self.dealers_characs)
             self.dealers[id_].set_starting_data_idx()
-        print_to_output('%d dealers have been created' % nb_dealers, 'Created Dealers', verbose=verbose)
+        utils.print_to_output('%d dealers have been created' % nb_dealers, 'Created Dealers', verbose=verbose)
+
+    def get_marker_makers_actions_limits(self):
+        return (DELTA, MAX_ASK_PRICE)
+
+    def get_dealers_actions_shape(self):
+        return (self.nb_companies, 2*MAX_AMOUNT+1)
+
+    def get_market_makers_observations_shape(self):
+        return (self.nb_companies * len(self.market_makers_characs) + (len(self.dealers_characs_per_company)-1) * self.nb_dealers, self.window_size)
+
+    def get_dealers_observations_shape(self):
+        return (self.nb_companies * (len(self.market_makers_characs) + len(self.dealers_characs_per_company)) + len(self.dealers_characs)-1, self.window_size)
 
     def get_current_ask_prices(self):
         return self.window_data[:, -1][0:self.nb_companies*len(self.market_makers_characs):len(self.market_makers_characs)]
@@ -334,26 +299,25 @@ class Market():
             self.dealers[id_d].set_charac('portfolio_value', np.dot(self.dealers[id_d].get_portfolio(), current_ask_prices.T))
         self.max_steps += 1
 
-    def get_observations_market_makers(self):
-        return np.array(list(map(lambda mm: mm.get_observation(), self.market_makers.values())))
-
-    def get_observations_dealers(self):
-        return np.array(list(map(lambda d: d.get_observation(), self.dealers.values())))
-
-    def get_rewards_market_makers(self, observations):
-        """
-        This function returns the current liquidity of the market for the every company
+    def get_response_market_makers(self):
+        """ 
+        This function returns the response from the market to a market maker action i.e. its next observation and its reward,
+        which is the current liquidity of the market for the every company
         """
         def get_reward(obs):
             current_obs = obs[:, -1][self.nb_companies*len(self.market_makers_characs):]
             return np.sum(np.dot(current_obs[::2], current_obs[1::2].T))
 
-        return list(map(get_reward, observations))
-    
-    def get_rewards_dealers(self, observations):
+        observations = np.array([mm.get_observation() for mm in self.market_makers.values()])
+        rewards = [get_reward(obs) for obs in observations]
+        return observations, rewards
+
+    def get_response_dealers(self):
+        """ 
+        This function returns the response from the market to a dealers action i.e. its next observation and its reward,
+        which is the difference in global wealth between the end of the last time step in the end of this new one for every dealer
         """
-        This function returns the difference in global wealth between the end of the last time step in the end of this new one for every dealer
-        """
+
         def get_reward(obs):
             current_obs = obs[:, -1]
             last_obs = obs[:, -2]
@@ -361,24 +325,28 @@ class Market():
             portfolio_diff = np.dot(current_obs[:self.nb_companies*len(self.market_makers_characs)][::2], current_obs[self.nb_companies*len(self.market_makers_characs):-1][::3].T) -\
                 np.dot(last_obs[:self.nb_companies*len(self.market_makers_characs)][::2], last_obs[self.nb_companies*len(self.market_makers_characs):-1][::3].T)
             return cash_diff + portfolio_diff
+        
+        observations = np.array([d.get_observation() for d in self.dealers.values()])
+        rewards = [get_reward(obs) for obs in observations]
+        return observations, rewards
 
-        return list(map(get_reward, observations))
+        
 
     def settle_positions(self, actions, verbose=0):
         if len(actions) != self.nb_companies:
-            print_to_output('Every market maker should have an action to do, your action dictionnary is incomplete', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
+            utils.print_to_output('Every market maker should have an action to do, your action dictionnary is incomplete', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
             sys.exit()
         for i in range(len(actions)):
-            self.market_makers[i].make_market(actions[i])
-        print_to_output(self, 'Positions of Market Makers', overoneline=False, verbose=verbose>0)
+            self.market_makers[i].take_action(actions[i])
+        utils.print_to_output(self, 'Positions of Market Makers', overoneline=False, verbose=verbose>0)
 
     def settle_trading(self, actions, verbose=0):
         if len(actions) != self.nb_dealers:
-            print_to_output('Every dealer should have an action to do, your action dictionnary is incomplete', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
+            utils.print_to_output('Every dealer should have an action to do, your action dictionnary is incomplete', '/!\\/!\\/!\\ERROR/!\\/!\\/!\\')
             sys.exit()
-        print_to_output(title='Orders', verbose=verbose>1)
+        utils.print_to_output(title='Orders', verbose=verbose>1)
         for id_d, action in enumerate(actions):
-            self.dealers[id_d].trade(action)
+            self.dealers[id_d].take_action(action)
         while len(self.selling_orders):
             self.fulfill_order(*self.selling_orders.pop(), verbose > 1)
         random.shuffle(self.buying_orders)
@@ -390,13 +358,13 @@ class Market():
         market_maker = self.market_makers[id_mm]
         if verbose:
             action = 'sell' if amount<0 else 'buy'
-            print_to_output('♦ New order processed: %s wants to %s %d %s stocks' % (contracted_by, action, abs(amount), market_maker))
+            utils.print_to_output('♦ New order processed: %s wants to %s %d %s stocks' % (contracted_by, action, abs(amount), market_maker))
         if amount > 0:
             cash_limit = contracted_by.get_charac('cash_dealer') // market_maker.get_charac('ask_price')
             if cash_limit >= amount and market_maker.get_charac('portfolio') >= amount:
                 total_of_transaction = amount * market_maker.get_charac('ask_price')
             else:
-                print_to_output('Order was not executed', verbose=verbose)
+                utils.print_to_output('Order was not executed', verbose=verbose)
                 contracted_by.set_charac('transaction_executed_%d' % (market_maker.id_), 0)
                 return
         elif amount < 0:
@@ -406,11 +374,13 @@ class Market():
         market_maker.add_to_charac('portfolio', -amount)
         contracted_by.set_charac('transaction_executed_%d' % (id_mm), 1)
         if verbose:
-            print_to_output('Order executed for %.2f' % abs(total_of_transaction))
+            utils.print_to_output('Order executed for %.2f' % abs(total_of_transaction))
 
     def reset(self):
         self.window_data = copy.deepcopy(self.initial_window_data)
+        self.historical_data = np.zeros((self.data_size, self.day_length+self.window_size), dtype=np.float32)
         self.historical_data[:, 0:self.window_size] = self.window_data[:, :-1]
+        self.max_steps = self.window_size
 
     def create_figure(self):
         self.animation_fig = plt.figure(figsize=(10, 8))
