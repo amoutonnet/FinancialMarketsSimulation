@@ -1,5 +1,3 @@
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import numpy as np
 import random
 import sys
@@ -7,10 +5,10 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 import itertools
 from . import utils
-np.set_printoptions(suppress=True, linewidth=1000, threshold=float('inf'))
+np.set_printoptions(suppress=True, linewidth=1000)
 
 
-DELTA = 1e-10
+DELTA = utils.DELTA
 VAR = 1
 SIGMA = 1
 LOG_SIGMA = 0
@@ -18,14 +16,8 @@ NPY_SQRT1_2 = 1 / (2**0.5)
 NPY_PI = np.pi
 
 
-def normalize(x):
-    x -= x.mean()
-    x /= (x.std() + DELTA)
-    return x
-
-
 class RLAgent():
-    def __init__(self, obs_space_shape, gamma, alpha, beta, temp, lambd, epsilon, hidden_conv_layers, hidden_dense_layers, verbose):
+    def __init__(self, N, obs_space_shape, gamma, alpha, beta, temp, lambd, epsilon, hidden_conv_layers, hidden_dense_layers, initializer, verbose):
         self.obs_space_shape = obs_space_shape  # The shape of the observation space
         self.gamma = gamma  # The discount rate associated with the agent experience
         self.alpha = alpha  # The learning rate for the parameter of the policy network
@@ -37,24 +29,24 @@ class RLAgent():
         self.optimizer_critic = tf.keras.optimizers.Adam(self.beta)  # The optimizert for the critic
         self.hidden_conv_layers = hidden_conv_layers  # The characteristics of the hidden convolutionnal layers
         self.hidden_dense_layers = hidden_dense_layers  # The characteristics of the hidden dense layers
-        self.loss_actor = float('inf')  # The loss of the actor
-        self.loss_critic = -float('inf')  # The loss of the critic
+        self.initializer = initializer  # The initializer for main part of network
+        self.loss_actor = [float('inf')] * N  # The loss of the actor for each agent
+        self.loss_critic = [-float('inf')] * N  # The loss of the critic for each agent
         self.memory = list()   # The memory to track trajectories
         self.verbose = verbose   # Whether you want to print things or not
         self.name = None   # Name of the network
+        self.N = N   # The number of agent handled by the network
 
-    def get_base_network(self, obs, agent_name, network_name, initializer='random_normal'):
+    def get_base_network(self, obs, agent_name, network_name):
         x = obs
         for id_, c in enumerate(self.hidden_conv_layers):
             x = tf.keras.layers.Conv1D(filters=c[0], kernel_size=c[1], padding='same', activation='relu',
-                                       kernel_initializer=initializer,
-                                       bias_initializer=initializer,
+                                       kernel_initializer=self.initializer,
                                        name='%s_%s_conv_%d' % (agent_name, network_name, id_))(x)
         x = tf.keras.layers.Flatten(name='%s_%s_flatten' % (agent_name, network_name))(x)
         for id_, d in enumerate(self.hidden_dense_layers):
             x = tf.keras.layers.Dense(d, activation='relu',
-                                      kernel_initializer=initializer,
-                                      bias_initializer=initializer,
+                                      kernel_initializer=self.initializer,
                                       name='%s_%s_dense_%d' % (agent_name, network_name, id_))(x)
         return x
 
@@ -77,25 +69,50 @@ class RLAgent():
     def get_discounted_rewards(self, rewards):
         return np.array(list(itertools.accumulate(rewards[::-1], lambda x, y: x * self.gamma + y))[::-1], dtype=np.float32)
 
-    def print_verbose(self, ep, total_episodes, episode_reward, rolling_score):
+    def print_verbose(self, episode_reward, rolling_score):
         if self.verbose:
-            print('{} \
-                 | Current Score ({:3.2f}) Rolling Average ({:3.2f}) \
-                 | Actor Loss ({:.4f}) Critic Loss ({:.4f})'.format(self.name.ljust(10),
-                                                                    episode_reward,
-                                                                    rolling_score,
-                                                                    self.loss_actor,
-                                                                    self.loss_critic
-                                                                    )
-                  )
+            for i in range(self.N):
+                print('Current Score ({:3.2f}) Rolling Average ({:3.2f}) \
+                    | Actor Loss ({:.4f}) Critic Loss ({:.4f})'.format(episode_reward[i],
+                                                                       rolling_score[i],
+                                                                       self.loss_actor[i],
+                                                                       self.loss_critic[i]
+                                                                       ))
 
 
 class MarketMakerRL(RLAgent):
-    def __init__(self, Nm, obs_space_shape, action_space_limits, gamma, alpha, beta, temp, lambd, epsilon, hidden_conv_layers=[], hidden_dense_layers=[128], verbose=False):
-        super().__init__(obs_space_shape, gamma, alpha, beta, temp, lambd, epsilon, hidden_conv_layers, hidden_dense_layers, verbose)
+    def __init__(
+        self,
+        N,
+        obs_space_shape,
+        action_space_limits,
+        gamma,
+        alpha,
+        beta,
+        temp,
+        lambd,
+        epsilon,
+        hidden_conv_layers=[],
+        hidden_dense_layers=[128],
+        initializer='random_normal',
+        verbose=False
+    ):
+        super().__init__(
+            N,
+            obs_space_shape,
+            gamma,
+            alpha,
+            beta,
+            temp,
+            lambd,
+            epsilon,
+            hidden_conv_layers,
+            hidden_dense_layers,
+            initializer,
+            verbose
+        )
         self.action_space_lower_limit = action_space_limits[0]
         self.action_space_upper_limit = action_space_limits[1]
-        self.Nm = Nm
         self.name = 'Market Makers'
         self.build_network()
 
@@ -105,7 +122,7 @@ class MarketMakerRL(RLAgent):
         """
         obs = tf.keras.Input(shape=self.obs_space_shape, name='market_makers_obs')
         advantages = tf.keras.Input(shape=(1,), name='market_makers_advantages')
-        x = self.get_base_network(obs, 'market_makers', 'actor', 'random_normal')
+        x = self.get_base_network(obs, 'market_makers', 'actor')
         mu = tf.keras.layers.Dense(1, activation='linear',
                                    kernel_initializer='random_normal',
                                    name='market_makers_means')(x)
@@ -157,11 +174,11 @@ class MarketMakerRL(RLAgent):
             advantages_with_entropy = advantages - self.temp * old_log_lik
             ratio = K.exp(log_lik - old_log_lik)
             clipped_ratio = K.clip(ratio, 1 - self.epsilon, 1 + self.epsilon)
-            return -K.sum(K.minimum(ratio * advantages_with_entropy, clipped_ratio * advantages_with_entropy), keepdims=True) / self.Nm
+            return -K.mean(K.minimum(ratio * advantages_with_entropy, clipped_ratio * advantages_with_entropy), keepdims=True) / self.N
 
         self.actor.compile(loss=actor_loss, optimizer=self.optimizer_actor, experimental_run_tf_function=False)
 
-        x = self.get_base_network(obs, 'market_makers', 'critic', 'random_normal')
+        x = self.get_base_network(obs, 'market_makers', 'critic')
 
         values = tf.keras.layers.Dense(1, activation='linear',
                                        kernel_initializer='random_normal',
@@ -185,31 +202,56 @@ class MarketMakerRL(RLAgent):
     def learn(self, epochs=1, batch_size=8):
         # We retrieve all states, actions and reward the agent got during the episode from the memory
         observations, actions, rewards = map(np.array, zip(*self.memory))
-        self.loss_actor = 0
-        self.loss_critic = 0
         for i in range(observations.shape[1]):
             # We process the states values with the critic network
             critic_values = np.squeeze(self.critic(observations[:, i]).numpy())
             # We get the advantage (difference between the discounted reward and the baseline)
             advantages = self.get_advantages(critic_values, rewards[:, i])
             # We normalize advantages
-            advantages = normalize(advantages)
+            advantages = utils.normalize(advantages)
             # We train the actor network
-            self.loss_actor += self.actor.train_on_batch([observations[:, i], advantages], actions[:, i])
+            self.loss_actor[i] = self.actor.train_on_batch([observations[:, i], advantages], actions[:, i])
             # We get discounted rewards
             discounted_rewards = self.get_discounted_rewards(rewards[:, i])
             # We train the critic network
-            self.loss_critic += self.critic.train_on_batch(observations[:, i], discounted_rewards)
+            self.loss_critic[i] = self.critic.train_on_batch(observations[:, i], discounted_rewards)
         self.memory.clear()
 
 
 class DealerRL(RLAgent):
-    def __init__(self, Nd, obs_space_shape, action_space_shape, gamma, alpha, beta, temp, lambd, epsilon, hidden_conv_layers=[], hidden_dense_layers=[128], verbose=False):
-        super().__init__(obs_space_shape, gamma, alpha, beta, temp, lambd, epsilon, hidden_conv_layers, hidden_dense_layers, verbose)
+    def __init__(
+        self,
+        N,
+        obs_space_shape,
+        action_space_shape,
+        gamma,
+        alpha,
+        beta,
+        temp,
+        lambd,
+        epsilon,
+        hidden_conv_layers=[],
+        hidden_dense_layers=[128],
+        initializer='random_normal',
+        verbose=False
+    ):
+        super().__init__(
+            N,
+            obs_space_shape,
+            gamma,
+            alpha,
+            beta,
+            temp,
+            lambd,
+            epsilon,
+            hidden_conv_layers,
+            hidden_dense_layers,
+            initializer,
+            verbose
+        )
         self.action_space_shape = action_space_shape
         self.max_amount = int((action_space_shape[1] - 1) / 2)
         self.name = 'Dealers'
-        self.Nd = Nd
         self.build_network()
 
     def build_network(self):
@@ -218,7 +260,7 @@ class DealerRL(RLAgent):
         """
         obs = tf.keras.Input(shape=self.obs_space_shape, name="dealers_obs")
         advantages = tf.keras.Input(shape=(1,), name="dealers_advantages")
-        x = self.get_base_network(obs, 'dealers', 'actor', 'random_normal')
+        x = self.get_base_network(obs, 'dealers', 'actor')
         probability_distrib_parameters = [
             tf.keras.layers.Dense(self.action_space_shape[1], activation='softmax',
                                   kernel_initializer='random_normal',
@@ -235,11 +277,11 @@ class DealerRL(RLAgent):
             advantages_with_entropy = advantages - self.temp * K.sum(old_log_lik, axis=-1)
             ratio = K.sum(K.exp(log_lik - old_log_lik), axis=1)
             clipped_ratio = K.clip(ratio, 1 - self.epsilon, 1 + self.epsilon)
-            return -K.sum(K.minimum(ratio * advantages_with_entropy, clipped_ratio * advantages_with_entropy), keepdims=True) / self.Nd
+            return -K.mean(K.minimum(ratio * advantages_with_entropy, clipped_ratio * advantages_with_entropy), keepdims=True) / self.N
 
         self.actor.compile(loss=actor_loss, optimizer=self.optimizer_actor, experimental_run_tf_function=False)
 
-        x = self.get_base_network(obs, 'dealers', 'critic', 'random_normal')
+        x = self.get_base_network(obs, 'dealers', 'critic')
         values = tf.keras.layers.Dense(1, activation='linear',
                                        kernel_initializer='random_normal',
                                        name="dealers_values")(x)
@@ -253,13 +295,18 @@ class DealerRL(RLAgent):
             print()
             self.critic.summary()
 
+    def get_actions_simple_policy(self, observation):
+        print(observation)
+
     def get_actions(self, observations):
-        probabilities = K.stack(self.policy(observations), axis=1).numpy()
-        print(probabilities)
+        nn_output = self.policy(observations)
+        if isinstance(nn_output, list):
+            probabilities = tf.stack(nn_output, axis=1).numpy()
+        else:
+            probabilities = tf.expand_dims(nn_output, axis=1).numpy()
         cumsums = np.cumsum(probabilities, axis=-1)
-        unif_draws = np.random.rand(cumsums.shape[0], cumsums.shape[1], 1)
+        unif_draws = np.random.rand(*cumsums.shape)
         actions = (unif_draws < cumsums).argmax(axis=-1)
-        print(actions)
         return actions - self.max_amount
 
     def learn(self, epochs=1, batch_size=8):
@@ -267,8 +314,6 @@ class DealerRL(RLAgent):
         observations, actions, rewards = map(np.array, zip(*self.memory))
         # We rescale actions
         actions += self.max_amount
-        self.loss_actor = 0
-        self.loss_critic = 0
         for i in range(observations.shape[1]):
             # We process the states values with the critic network
             critic_values = np.squeeze(self.critic(observations[:, i]).numpy())
@@ -277,11 +322,15 @@ class DealerRL(RLAgent):
             # We get the advantage (difference between the discounted reward and the baseline)
             advantages = self.get_advantages(critic_values, rewards[:, i])
             # We normalize advantages
-            advantages = normalize(advantages)
+            advantages = utils.normalize(advantages)
             # We train the actor network
-            self.loss_actor += self.actor.train_on_batch([observations[:, i], advantages], actions_list)[0]
+            loss = self.actor.train_on_batch([observations[:, i], advantages], actions_list)
+            if isinstance(loss, list):
+                self.loss_actor[i] = loss[0]
+            else:
+                self.loss_actor[i] = loss
             # We get discounted rewards
             discounted_rewards = self.get_discounted_rewards(rewards[:, i])
             # We train the critic network
-            self.loss_critic += self.critic.train_on_batch(observations[:, i], discounted_rewards)
+            self.loss_critic[i] = self.critic.train_on_batch(observations[:, i], discounted_rewards)
         self.memory.clear()

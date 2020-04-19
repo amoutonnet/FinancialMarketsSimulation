@@ -1,3 +1,18 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import tensorflow as tf
+import numpy as np
+import random
+
+DELTA = 1e-8
+
+
+def set_global_seed(seed):
+    tf.random.set_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+
 def print_to_output(message=None, title=None, overoneline=True, verbose=True):
     """
     This function is used to simplify the printing task. You can
@@ -23,3 +38,15 @@ def print_to_output(message=None, title=None, overoneline=True, verbose=True):
                         print(i)
             else:
                 print(message)
+
+
+def center(x):
+    return x - x.mean()
+
+
+def reduce_(x):
+    return x / (x.std() + DELTA)
+
+
+def normalize(x):
+    return reduce_(center(x))

@@ -1,15 +1,14 @@
+
+from utils import utils
 from utils import environment
 from utils import learning
-from utils import utils
-import pandas as pd
 from tqdm import tqdm
-from multiprocessing import Pool
 import matplotlib.pyplot as plt
-from collections import deque
+import numpy as np
 import sys
 import time
-import copy
-import numpy as np
+
+utils.set_global_seed(150)
 
 
 class Simulation():
@@ -75,7 +74,7 @@ class Simulation():
         d_training_rolling_average = np.empty((self.Nd, max_episodes))
         while ep < max_episodes:
             mm_episode_reward = np.zeros((self.Nm,))
-            d_episode_reward = np.zeros((self.Nd))
+            d_episode_reward = np.zeros((self.Nd,))
             self.env.reset()
             observations_mm, _ = self.env.get_response_market_makers()
             for i in range(self.T):
@@ -100,10 +99,6 @@ class Simulation():
             _, rewards_d = self.env.get_response_dealers()
             d_episode_reward += rewards_d
             self.d_agent.memory.append((observations_d, actions_d, rewards_d))
-            if (ep + 1) % test_every <= test_on:
-                self.env.show_env()
-            else:
-                self.env.close_env()
             self.mm_agent.learn()
             self.d_agent.learn()
             mm_training_score[:, ep] = mm_episode_reward
@@ -111,8 +106,12 @@ class Simulation():
             d_training_score[:, ep] = d_episode_reward
             d_training_rolling_average[:, ep] = np.mean(d_training_score[:, max(0, ep - process_average_over):ep + 1], axis=1)
             print('Episode {:5d}/{:5d}'.format(ep + 1, max_episodes))
-            self.mm_agent.print_verbose(ep + 1, max_episodes, np.mean(mm_training_score[:, ep]), np.mean(mm_training_rolling_average[:, ep]))
-            self.d_agent.print_verbose(ep + 1, max_episodes, np.mean(d_training_score[:, ep]), np.mean(d_training_rolling_average[:, ep]))
+            print(self.mm_agent.name)
+            self.mm_agent.print_verbose(mm_training_score[:, ep], mm_training_rolling_average[:, ep])
+            print(self.d_agent.name)
+            self.d_agent.print_verbose(d_training_score[:, ep], d_training_rolling_average[:, ep])
+            if (ep + 1) % test_every <= test_on:
+                self.env.show_env()
             ep += 1
         _, ax = plt.subplots(nrows=1, ncols=2)
         ax[0].plot(mm_training_score[0], 'b', linewidth=1, label='Score')
@@ -137,39 +136,41 @@ class Simulation():
 
 
 if __name__ == "__main__":
-    T = 100
+    T = 1000
     nb_companies = 5
     initial_nb_shares = 100
-    nb_dealers = 20
+    nb_dealers = 10
     initial_dealer_budget = 10000
     initial_price = 10
     window_size = 20
     spread = 5
     mm_parameters = {
         'gamma': 0.99,
-        'alpha': 1e-3,
-        'beta': 1e-3,
-        'temp': 1,
+        'alpha': 1e-4,
+        'beta': 1e-4,
+        'temp': 10,
         'lambd': 0.5,
         'epsilon': 0.2,
         'hidden_conv_layers': [(32, 3), (16, 3)],
         'hidden_dense_layers': [128, 64, 32],
+        'initializer': 'he_normal',
         'verbose': True
     }
     d_parameters = {
         'gamma': 0.99,
-        'alpha': 1e-3,
-        'beta': 1e-3,
-        'temp': 0.01,
+        'alpha': 1e-4,
+        'beta': 1e-4,
+        'temp': 10,
         'lambd': 0.5,
         'epsilon': 0.2,
         'hidden_conv_layers': [(32, 3), (16, 3)],
         'hidden_dense_layers': [128, 64, 32],
+        'initializer': 'random_normal',
         'verbose': True
     }
 
     # Initialize the market
     sim = Simulation(nb_companies, nb_dealers, T, initial_nb_shares, initial_dealer_budget, initial_price, window_size, spread, mm_parameters, d_parameters)
     # Run the simulation for T steps
-    # sim.simulate_random(plot_final=True, print_states=False, print_rewards=True)
-    sim.train(max_episodes=100, process_average_over=10, test_every=50, test_on=5)
+    # sim.simulate_random(plot_final=True, print_states=True, print_rewards=True)
+    sim.train(max_episodes=100, process_average_over=10, test_every=50, test_on=50)

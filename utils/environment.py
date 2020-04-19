@@ -140,6 +140,9 @@ class DealerAgent(Agent):
 
     def set_starting_data_idx(self):
         self.starting_data_idx = self.market.data_idx['portfolio_dealer_0_%d' % self.id_]
+        self.portfolio_slice = slice(self.starting_data_idx,
+                                             self.starting_data_idx + self.market.nb_companies*len(self.market.dealers_characs_per_company),
+                                             len(self.market.dealers_characs_per_company))
 
     def sample_action(self):
         """
@@ -174,9 +177,7 @@ class DealerAgent(Agent):
         This function returns the state of the portfolio of the dealer, i.e. the number of stocks
         he owns for every companies as a 1D array.
         """
-        return self.market.window_data[:,-1][self.starting_data_idx :\
-                                             self.starting_data_idx + self.market.nb_companies*len(self.market.dealers_characs_per_company) :\
-                                             len(self.market.dealers_characs_per_company)] 
+        return self.market.window_data[:,-1][self.portfolio_slice] 
 
     def get_observation(self):
         """
@@ -211,7 +212,7 @@ class Market():
         self.spread = spread
         self.market_makers_characs = [
             (initial_price, 'ask_price'),
-            (0, 'portfolio'),
+            (initial_nb_shares_per_dealer_per_company, 'portfolio'),
         ]
         initial_nb_shares_per_dealer_per_company = initial_nb_shares_per_dealer_per_company
         initial_portfolio_value = initial_nb_shares_per_dealer_per_company*initial_price*self.nb_companies
@@ -295,9 +296,6 @@ class Market():
     def prepare_next_step(self):
         self.window_data[:, :-1] = self.window_data[:, 1:]
         self.historical_data[:, self.max_steps] = self.window_data[:, -2]
-        current_ask_prices = self.get_current_ask_prices()
-        for id_d in range(self.nb_dealers):
-            self.dealers[id_d].set_charac('portfolio_value', np.dot(self.dealers[id_d].get_portfolio(), current_ask_prices.T))
         self.max_steps += 1
 
     def get_response_market_makers(self):
@@ -305,12 +303,19 @@ class Market():
         This function returns the response from the market to a market maker action i.e. its next observation and its reward,
         which is the current liquidity of the market for the every company
         """
-        def get_reward(obs):
+        def get_inandout(obs):
             current_obs = obs[:, -1][self.nb_companies*len(self.market_makers_characs):]
-            return np.dot(np.abs(current_obs[::2]), current_obs[1::2].T) - np.dot(np.abs(current_obs[::2]), (1.0-current_obs[1::2]).T) - obs[1,-1]
+            return np.dot(np.abs(current_obs[::2]), current_obs[1::2].T) - np.dot(np.abs(current_obs[::2]), (1.0-current_obs[1::2]).T)
 
         observations = np.array([mm.get_observation() for mm in self.market_makers.values()])
-        rewards = [get_reward(obs) for obs in observations]
+        get_inandout = np.array([get_inandout(obs) for obs in observations])
+        if all(get_inandout==get_inandout[0]):
+            rewards = np.zeros((len(get_inandout),))
+        else:
+            idx_wealthiest = np.argmax(get_inandout)
+            rewards = np.eye(1, len(get_inandout), idx_wealthiest)[0]
+            if self.max_steps - self.window_size == self.day_length:
+                rewards*=2*self.day_length
         return observations, rewards
 
     def get_response_dealers(self):
@@ -319,16 +324,25 @@ class Market():
         which is the difference in global wealth between the end of the last time step in the end of this new one for every dealer
         """
 
-        def get_reward(obs):
+        def get_wealth(obs):
             current_obs = obs[:, -1]
-            last_obs = obs[:, -2]
-            cash_diff = current_obs[-1] - last_obs[-1]
-            portfolio_diff = np.dot(current_obs[:self.nb_companies*len(self.market_makers_characs)][::2], current_obs[self.nb_companies*len(self.market_makers_characs):-1][::3].T) -\
-                np.dot(last_obs[:self.nb_companies*len(self.market_makers_characs)][::2], last_obs[self.nb_companies*len(self.market_makers_characs):-1][::3].T)
-            return cash_diff + portfolio_diff
+            cash = current_obs[-1]
+            portfolio = np.dot(
+                current_obs[:self.nb_companies*len(self.market_makers_characs)][::2],
+                current_obs[self.nb_companies*len(self.market_makers_characs):-1][::3].T
+            )
+            return cash + portfolio
+
         
         observations = np.array([d.get_observation() for d in self.dealers.values()])
-        rewards = [get_reward(obs) for obs in observations]
+        wealths = np.array([get_wealth(obs) for obs in observations])
+        if all(wealths==wealths[0]):
+            rewards = np.zeros((len(wealths),))
+        else:
+            idx_wealthiest = np.argmax(wealths)
+            rewards = np.eye(1, len(wealths), idx_wealthiest)[0]
+            if self.max_steps - self.window_size == self.day_length:
+                rewards*=2*self.day_length
         return observations, rewards
 
         
@@ -339,6 +353,9 @@ class Market():
             sys.exit()
         for i in range(len(actions)):
             self.market_makers[i].take_action(actions[i])
+        current_ask_prices = self.get_current_ask_prices()
+        for id_d in range(self.nb_dealers):
+            self.dealers[id_d].set_charac('portfolio_value', np.dot(self.dealers[id_d].get_portfolio(), current_ask_prices.T))
         utils.print_to_output(self, 'Positions of Market Makers', overoneline=False, verbose=verbose>0)
 
     def settle_trading(self, actions, verbose=0):
@@ -408,7 +425,6 @@ class Market():
             self.lines += [ax.get_lines()]
 
     def show_env(self, title='Simulation Visualisation'):
-        self.close_env()
         self.create_figure()
         x = np.arange(0, self.day_length, 1)
         for id_mm in self.market_makers:
@@ -425,11 +441,6 @@ class Market():
         self.animation_fig.subplots_adjust(top=0.87)
         self.animation_fig.suptitle(title, fontsize=15, x=0.54)
         plt.show()
-
-    def close_env(self):
-        if self.animation_fig is not None:
-            self.animation_fig = None
-            plt.close()
 
     def __str__(self):
         to_print = ''
