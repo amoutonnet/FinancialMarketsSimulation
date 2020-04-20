@@ -7,22 +7,49 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sys
 import time
+import tensorflow.keras.initializers as init
 
 utils.set_global_seed(150)
 
 
 class Simulation():
-    def __init__(self, Nm, Nd, T, p0, c0, A0, W, S, mm_parameters, d_parameters):
+    def __init__(
+        self,
+        Nm,
+        nb_market_makers_using_simple_policy,
+        Nd,
+        nb_dealers_using_simple_policy,
+        T,
+        p0,
+        m0,
+        c0,
+        A0,
+        W,
+        S,
+        mm_parameters,
+        d_parameters,
+    ):
+        assert(
+            nb_market_makers_using_simple_policy <= Nm
+            and nb_market_makers_using_simple_policy >= 0
+        )
+        assert(
+            nb_dealers_using_simple_policy <= Nd
+            and nb_dealers_using_simple_policy >= 0
+        )
         self.Nm = Nm  # Number of market makers
+        self.nb_market_makers_using_simple_policy = nb_market_makers_using_simple_policy  # List of simple policy market makers
         self.T = T  # Length of trading day
         self.p0 = p0  # Initial stocks per dealer per company
         self.Nd = Nd  # Number of dealers
+        self.nb_dealers_using_simple_policy = nb_dealers_using_simple_policy  # List of simple policy market makers
         self.c0 = c0  # Initial cash per dealer
+        self.m0 = m0  # Initial stocks per market makers
         self.A0 = A0  # Initial ask price for every company
         self.W = W  # Window length
         self.S = S  # Spread
         self.summarize_initial_state()
-        self.env = environment.Market(Nm, Nd, T, p0, c0, A0, W, S)
+        self.env = environment.Market(Nm, Nd, T, p0, m0, c0, A0, W, S)
         mm_obs_space_shape = self.env.get_market_makers_observations_shape()
         mm_actions_limits = self.env.get_marker_makers_actions_limits()
         self.mm_agent = learning.MarketMakerRL(Nm, mm_obs_space_shape, mm_actions_limits, **mm_parameters)
@@ -78,7 +105,7 @@ class Simulation():
             self.env.reset()
             observations_mm, _ = self.env.get_response_market_makers()
             for i in range(self.T):
-                actions_mm = self.mm_agent.get_actions(observations_mm)
+                actions_mm = self.mm_agent.get_actions(observations_mm, self.nb_market_makers_using_simple_policy)
                 self.env.settle_positions(actions_mm)
                 if i == 0:
                     observations_d, _ = self.env.get_response_dealers()
@@ -87,14 +114,14 @@ class Simulation():
                     d_episode_reward += rewards_d
                     self.d_agent.memory.append((observations_d, actions_d, rewards_d))
                     observations_d = next_observations_d
-                actions_d = self.d_agent.get_actions(observations_d)
+                actions_d = self.d_agent.get_actions(observations_d, self.nb_dealers_using_simple_policy)
                 self.env.settle_trading(actions_d)
                 self.env.prepare_next_step()
                 next_observations_mm, reward_mm = self.env.get_response_market_makers()
                 mm_episode_reward += reward_mm
                 self.mm_agent.memory.append((observations_mm, actions_mm, reward_mm))
                 observations_mm = next_observations_mm
-            actions_mm = self.mm_agent.get_actions(observations_mm)
+            actions_mm = self.mm_agent.get_actions(observations_mm, self.nb_market_makers_using_simple_policy)
             self.env.settle_positions(actions_mm)
             _, rewards_d = self.env.get_response_dealers()
             d_episode_reward += rewards_d
@@ -137,11 +164,14 @@ class Simulation():
 
 if __name__ == "__main__":
     T = 1000
-    nb_companies = 5
-    initial_nb_shares = 100
+    nb_companies = 1
+    nb_market_makers_using_simple_policy = 0  # This number needs to be between 0 and nb_companies
+    initial_nb_shares_per_market_maker = 100
+    initial_price = 50
     nb_dealers = 10
+    nb_dealers_using_simple_policy = 0  # This number needs to be between 0 and nb_dealers
+    initial_nb_shares_per_dealer_per_company = 100
     initial_dealer_budget = 10000
-    initial_price = 10
     window_size = 20
     spread = 5
     mm_parameters = {
@@ -153,7 +183,7 @@ if __name__ == "__main__":
         'epsilon': 0.2,
         'hidden_conv_layers': [(32, 3), (16, 3)],
         'hidden_dense_layers': [128, 64, 32],
-        'initializer': 'he_normal',
+        'initializer': init.he_normal(),
         'verbose': True
     }
     d_parameters = {
@@ -165,12 +195,26 @@ if __name__ == "__main__":
         'epsilon': 0.2,
         'hidden_conv_layers': [(32, 3), (16, 3)],
         'hidden_dense_layers': [128, 64, 32],
-        'initializer': 'random_normal',
+        'initializer': init.RandomNormal(),
         'verbose': True
     }
 
     # Initialize the market
-    sim = Simulation(nb_companies, nb_dealers, T, initial_nb_shares, initial_dealer_budget, initial_price, window_size, spread, mm_parameters, d_parameters)
+    sim = Simulation(
+        nb_companies,   # The number of companies to include in the simulation
+        nb_market_makers_using_simple_policy,   # The number of market makers whose actions will be dicted by a simple policy and not by RL
+        nb_dealers,   # The number of dealers to inlcude in the simulation
+        nb_dealers_using_simple_policy,   # The number of dealers whose actions will be dicted by a simple policy and not by RL
+        T,   # The length of the trading day
+        initial_nb_shares_per_dealer_per_company,   # The initial number of shares per dealer per company
+        initial_nb_shares_per_market_maker,   # The initial number of shares per market maker
+        initial_dealer_budget,   # The initial amount of cash of dealers
+        initial_price,   # The initial ask price
+        window_size,   # The length of the observable window size
+        spread,   # The constant spread during the simulation
+        mm_parameters,   # The parameters for the market maker RL agent
+        d_parameters   # The parameters for the dealer RL agent
+    )
     # Run the simulation for T steps
     # sim.simulate_random(plot_final=True, print_states=True, print_rewards=True)
     sim.train(max_episodes=100, process_average_over=10, test_every=50, test_on=50)

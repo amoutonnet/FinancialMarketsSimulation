@@ -159,18 +159,21 @@ class DealerAgent(Agent):
         """
         This function is called to place the orders based on the action taken
         """
-        for id_mm, act in enumerate(actions):
-            self.set_charac('amount_traded_%d' % id_mm, act)
-            if act > 0:
+        for id_mm, action in enumerate(actions):
+            self.set_charac('amount_traded_%d' % id_mm, action)
+            if action > 0:
                 # For a buying order we place it directly
-                self.market.buying_orders += [(self.id_, id_mm, act)]
+                self.market.buying_orders += [(self.id_, id_mm, action)]
                 return
-            elif act < 0:
+            elif action < 0:
                 # For a selling order, we place it only if we have enough stocks in our portfolio
-                if self.get_charac('portfolio_dealer_%d' % id_mm) >= -act:
-                    self.market.selling_orders += [(self.id_, id_mm, act)]
+                if self.get_charac('portfolio_dealer_%d' % id_mm) >= -action:
+                    self.market.selling_orders += [(self.id_, id_mm, action)]
                     return
-            self.set_charac('transaction_executed_%d' % id_mm, 0)
+                else:
+                    self.set_charac('transaction_executed_%d' % id_mm, 0)
+            else:
+                self.set_charac('transaction_executed_%d' % id_mm, 1)
 
     def get_portfolio(self):
         """
@@ -199,7 +202,18 @@ class Market():
     dealers evolving in it
     """
 
-    def __init__(self, nb_companies, nb_dealers, day_length, initial_nb_shares_per_dealer_per_company, initial_dealer_budget, initial_price, window_size, spread):
+    def __init__(
+        self, 
+        nb_companies, 
+        nb_dealers, 
+        day_length, 
+        initial_nb_shares_per_dealer_per_company,
+        initial_nb_shares_per_market_maker,
+        initial_dealer_budget,
+        initial_price, 
+        window_size,
+        spread
+    ):
         self.market_makers = {}       # A dictionnary containing market makers
         self.dealers = {}             # A dictionnary containing dealers
         self.companies = []
@@ -212,14 +226,14 @@ class Market():
         self.spread = spread
         self.market_makers_characs = [
             (initial_price, 'ask_price'),
-            (initial_nb_shares_per_dealer_per_company, 'portfolio'),
+            (initial_nb_shares_per_market_maker, 'portfolio'),
         ]
         initial_nb_shares_per_dealer_per_company = initial_nb_shares_per_dealer_per_company
         initial_portfolio_value = initial_nb_shares_per_dealer_per_company*initial_price*self.nb_companies
         self.dealers_characs_per_company = [
             (initial_nb_shares_per_dealer_per_company, 'portfolio_dealer'),
             (0, 'amount_traded'),
-            (0, 'transaction_executed')
+            (1, 'transaction_executed')
         ]
         self.dealers_characs = [
             (initial_dealer_budget, 'cash_dealer'),
@@ -309,13 +323,16 @@ class Market():
 
         observations = np.array([mm.get_observation() for mm in self.market_makers.values()])
         get_inandout = np.array([get_inandout(obs) for obs in observations])
-        if all(get_inandout==get_inandout[0]):
-            rewards = np.zeros((len(get_inandout),))
+        if len(get_inandout)>1:
+            if all(get_inandout==get_inandout[0]):
+                rewards = np.zeros((len(get_inandout),))
+            else:
+                idx_wealthiest = np.argmax(get_inandout)
+                rewards = np.eye(1, len(get_inandout), idx_wealthiest)[0]
+                if self.max_steps - self.window_size == self.day_length:
+                    rewards*=2*self.day_length
         else:
-            idx_wealthiest = np.argmax(get_inandout)
-            rewards = np.eye(1, len(get_inandout), idx_wealthiest)[0]
-            if self.max_steps - self.window_size == self.day_length:
-                rewards*=2*self.day_length
+            rewards = get_inandout
         return observations, rewards
 
     def get_response_dealers(self):

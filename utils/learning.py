@@ -42,11 +42,13 @@ class RLAgent():
         for id_, c in enumerate(self.hidden_conv_layers):
             x = tf.keras.layers.Conv1D(filters=c[0], kernel_size=c[1], padding='same', activation='relu',
                                        kernel_initializer=self.initializer,
+                                       bias_initializer=self.initializer,
                                        name='%s_%s_conv_%d' % (agent_name, network_name, id_))(x)
         x = tf.keras.layers.Flatten(name='%s_%s_flatten' % (agent_name, network_name))(x)
         for id_, d in enumerate(self.hidden_dense_layers):
             x = tf.keras.layers.Dense(d, activation='relu',
                                       kernel_initializer=self.initializer,
+                                      bias_initializer=self.initializer,
                                       name='%s_%s_dense_%d' % (agent_name, network_name, id_))(x)
         return x
 
@@ -56,7 +58,10 @@ class RLAgent():
     def learn(self):
         raise NotImplementedError
 
-    def get_actions(self, observations):
+    def get_actions(self, observations, nbs_simple_policy):
+        raise NotImplementedError
+
+    def get_action_simple_policy(self, observation):
         raise NotImplementedError
 
     def get_advantages(self, critic_values, rewards):
@@ -124,7 +129,8 @@ class MarketMakerRL(RLAgent):
         advantages = tf.keras.Input(shape=(1,), name='market_makers_advantages')
         x = self.get_base_network(obs, 'market_makers', 'actor')
         mu = tf.keras.layers.Dense(1, activation='linear',
-                                   kernel_initializer='random_normal',
+                                   kernel_initializer=self.initializer,
+                                   bias_initializer=self.initializer,
                                    name='market_makers_means')(x)
         self.policy = tf.keras.Model(inputs=obs, outputs=mu, name='Market_Makers_Policy')
         self.actor = tf.keras.Model(inputs=[obs, advantages], outputs=mu, name='Market_Makers_Actor')
@@ -181,7 +187,8 @@ class MarketMakerRL(RLAgent):
         x = self.get_base_network(obs, 'market_makers', 'critic')
 
         values = tf.keras.layers.Dense(1, activation='linear',
-                                       kernel_initializer='random_normal',
+                                       kernel_initializer=self.initializer,
+                                       bias_initializer=self.initializer,
                                        name='market_makers_values')(x)
 
         self.critic = tf.keras.Model(inputs=obs, outputs=values, name='Market_Makers_Critic')
@@ -193,8 +200,35 @@ class MarketMakerRL(RLAgent):
             print()
             self.critic.summary()
 
-    def get_actions(self, observations):
-        means = self.policy(observations)
+    def get_action_simple_policy(self, observation):
+        """This function takes as input an observation of one market maker
+        and output a mean for the new ask price to be drawn. This ask price will be
+        drawn according to a normal distribution of stddev SIGMA=1 and mean what
+        this function returns.
+
+        Arguments:
+            observation {[np.ndarray]} -- [The market maker observation array described in the report]
+
+        Returns:
+            action {[int]} -- [the mean of the ask price to be drawn]
+        """
+        print(observation)
+        # sys.exit()  # Uncomment this line to stop the program just after the print
+        # TO COMPLETE (replace 10)
+        action = 10
+        assert(action >= self.action_space_lower_limit and action <= self.action_space_upper_limit)
+        return [action]
+
+    def get_actions(self, observations, nbs_simple_policy):
+        if nbs_simple_policy:
+            if nbs_simple_policy < len(observations):
+                means = self.policy(observations[:-nbs_simple_policy])
+                simple_policy_means = np.array([self.get_action_simple_policy(obs) for obs in observations[-nbs_simple_policy:]], dtype=np.float32)
+                means = np.vstack((means, simple_policy_means))
+            else:
+                means = np.array([self.get_action_simple_policy(obs) for obs in observations], dtype=np.float32)
+        else:
+            means = self.policy(observations)
         actions = np.random.normal(means, SIGMA, len(means))
         clipped_actions = np.clip(actions, self.action_space_lower_limit, self.action_space_upper_limit)
         return clipped_actions
@@ -263,7 +297,8 @@ class DealerRL(RLAgent):
         x = self.get_base_network(obs, 'dealers', 'actor')
         probability_distrib_parameters = [
             tf.keras.layers.Dense(self.action_space_shape[1], activation='softmax',
-                                  kernel_initializer='random_normal',
+                                  kernel_initializer=self.initializer,
+                                  bias_initializer=self.initializer,
                                   name='dealers_probs_%d' % id_)(x)
             for id_ in range(self.action_space_shape[0])
         ]
@@ -283,7 +318,8 @@ class DealerRL(RLAgent):
 
         x = self.get_base_network(obs, 'dealers', 'critic')
         values = tf.keras.layers.Dense(1, activation='linear',
-                                       kernel_initializer='random_normal',
+                                       kernel_initializer=self.initializer,
+                                       bias_initializer=self.initializer,
                                        name="dealers_values")(x)
 
         self.critic = tf.keras.Model(inputs=obs, outputs=values, name='Dealers_Critic')
@@ -295,19 +331,54 @@ class DealerRL(RLAgent):
             print()
             self.critic.summary()
 
-    def get_actions_simple_policy(self, observation):
-        print(observation)
+    def get_action_simple_policy(self, observation):
+        """This function takes as input an observation of one dealer
+        and output an amount to trade between -self.max_amount and
+        +self.max_amount FOR EACH COMPANY as an array. The total
+        number of companies if self.action_space_shape[0].
+        e.g. return [-2,0,2] if you want the dealer to
+            • sell 2 stocks of company 0
+            • do nothing for company 1
+            • buy 2 stocks of company 2
 
-    def get_actions(self, observations):
-        nn_output = self.policy(observations)
-        if isinstance(nn_output, list):
-            probabilities = tf.stack(nn_output, axis=1).numpy()
+        Arguments:
+            observation {[np.ndarray]} -- [The dealer observation array described in the report]
+
+        Returns:
+            action {[int]} -- [an amount to trade between -self.max_amount and +self.max_amount]
+        """
+        print(observation)
+        # sys.exit()  # Uncomment this line to stop the program just after the print
+        # TO COMPLETE (replace [0]*self.action_space_shape[0])
+        action = [0] * self.action_space_shape[0]
+        assert(all([act <= self.max_amount and act >= -self.max_amount for act in action]))
+        return action
+
+    def get_actions(self, observations, nbs_simple_policy):
+        if nbs_simple_policy:
+            if nbs_simple_policy < len(observations):
+                nn_output = self.policy(observations[:-nbs_simple_policy])
+                if isinstance(nn_output, list):
+                    probabilities = tf.stack(nn_output, axis=1).numpy()
+                else:
+                    probabilities = tf.expand_dims(nn_output, axis=1).numpy()
+                cumsums = np.cumsum(probabilities, axis=-1)
+                unif_draws = np.random.rand(*cumsums.shape)
+                actions = (unif_draws < cumsums).argmax(axis=-1) - self.max_amount
+                simple_policy_actions = np.array([self.get_action_simple_policy(obs) for obs in observations[-nbs_simple_policy:]], dtype=np.int32)
+                return np.vstack((actions, simple_policy_actions))
+            else:
+                return np.array([self.get_action_simple_policy(obs) for obs in observations], dtype=np.int32)
         else:
-            probabilities = tf.expand_dims(nn_output, axis=1).numpy()
-        cumsums = np.cumsum(probabilities, axis=-1)
-        unif_draws = np.random.rand(*cumsums.shape)
-        actions = (unif_draws < cumsums).argmax(axis=-1)
-        return actions - self.max_amount
+            nn_output = self.policy(observations)
+            if isinstance(nn_output, list):
+                probabilities = tf.stack(nn_output, axis=1).numpy()
+            else:
+                probabilities = tf.expand_dims(nn_output, axis=1).numpy()
+            cumsums = np.cumsum(probabilities, axis=-1)
+            unif_draws = np.random.rand(*cumsums.shape)
+            actions = (unif_draws < cumsums).argmax(axis=-1)
+            return actions - self.max_amount
 
     def learn(self, epochs=1, batch_size=8):
         # We retrieve all states, actions and reward the agent got during the episode from the memory
