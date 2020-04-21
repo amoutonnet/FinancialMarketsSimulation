@@ -95,3 +95,7 @@ We are five student at UC Berkeley, in a Master of Engineering program within th
 - [Yida Cui](https://www.linkedin.com/in/yidacui/)
 - [Anqi Shi](https://www.linkedin.com/in/anqi-shi-691699180/)
 - [Aakash Grover](https://www.linkedin.com/in/aakash-grover/)
+<<<<<<< HEAD
+=======
+- [Adam Moutonnet](https://www.linkedin.com/in/amoutonnet/)
+>>>>>>> a3b3d7c91dc39ffbaf1fdc029ba91ffe2c22de26
