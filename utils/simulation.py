@@ -299,7 +299,7 @@ class Market():
         print_to_output(title='Created Companies and Market Makers', verbose=verbose)
         for (_, j) in company_data[:nb_companies].iterrows():
             name = j[0]
-            # short_name = j[1]
+            short_name = j[1] ####
             if short_name not in self.companies:
                 self.companies += [short_name]
                 id_mm = len(self.market_makers)

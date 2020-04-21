@@ -1,3 +1,5 @@
+import os
+os.chdir('/Users/YangZefan/Study/UCB/FinTech/Capstonegithub')
 from utils import simulation
 from utils import learning
 import pandas as pd
