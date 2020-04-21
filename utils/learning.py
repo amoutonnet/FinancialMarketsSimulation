@@ -17,13 +17,14 @@ def get_reward_market_makers(observation):
     """
     # TO COMPLETE
     reward = None
-
+    #print(observation)
+    #sys.exit()
     return reward
 
 
 def get_reward_dealers(observation):
     """
-    observation is an array of size (3*nb_companies + 6, window_size + 1)
+    observation is an array of size (3*nb_companies + 7, window_size + 1)
     Rows represent the state of some caracteristics during the window_size last time steps plus the current one.
     Here the current time steps is not fully updated as the training phase occurs when the step is not finished.
     Only the state of the market (1st 2*nb_companies rows), the portfolio value and the global wealth is updated.
