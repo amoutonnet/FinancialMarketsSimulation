@@ -105,7 +105,7 @@ class Simulation():
             self.env.reset()
             observations_mm, _ = self.env.get_response_market_makers()
             for i in range(self.T):
-                actions_mm = self.mm_agent.get_actions(observations_mm, self.nb_market_makers_using_simple_policy)
+                actions_mm = self.mm_agent.get_actions(observations_mm, self.nb_market_makers_using_simple_policy, i)
                 self.env.settle_positions(actions_mm)
                 if i == 0:
                     observations_d, _ = self.env.get_response_dealers()
@@ -114,20 +114,20 @@ class Simulation():
                     d_episode_reward += rewards_d
                     self.d_agent.memory.append((observations_d, actions_d, rewards_d))
                     observations_d = next_observations_d
-                actions_d = self.d_agent.get_actions(observations_d, self.nb_dealers_using_simple_policy)
+                actions_d = self.d_agent.get_actions(observations_d, self.nb_dealers_using_simple_policy, i)
                 self.env.settle_trading(actions_d)
                 self.env.prepare_next_step()
                 next_observations_mm, reward_mm = self.env.get_response_market_makers()
                 mm_episode_reward += reward_mm
                 self.mm_agent.memory.append((observations_mm, actions_mm, reward_mm))
                 observations_mm = next_observations_mm
-            actions_mm = self.mm_agent.get_actions(observations_mm, self.nb_market_makers_using_simple_policy)
+            actions_mm = self.mm_agent.get_actions(observations_mm, self.nb_market_makers_using_simple_policy, i)
             self.env.settle_positions(actions_mm)
             _, rewards_d = self.env.get_response_dealers()
             d_episode_reward += rewards_d
             self.d_agent.memory.append((observations_d, actions_d, rewards_d))
-            self.mm_agent.learn()
-            self.d_agent.learn()
+            self.mm_agent.learn(self.nb_market_makers_using_simple_policy)
+            self.d_agent.learn(self.nb_dealers_using_simple_policy)
             mm_training_score[:, ep] = mm_episode_reward
             mm_training_rolling_average[:, ep] = np.mean(mm_training_score[:, max(0, ep - process_average_over):ep + 1], axis=1)
             d_training_score[:, ep] = d_episode_reward
@@ -137,7 +137,7 @@ class Simulation():
             self.mm_agent.print_verbose(mm_training_score[:, ep], mm_training_rolling_average[:, ep])
             print(self.d_agent.name)
             self.d_agent.print_verbose(d_training_score[:, ep], d_training_rolling_average[:, ep])
-            if (ep + 1) % test_every <= test_on:
+            if (ep + 1) % test_every <= test_on and ep > test_on:
                 self.env.show_env()
             ep += 1
         _, ax = plt.subplots(nrows=1, ncols=2)
@@ -165,35 +165,35 @@ class Simulation():
 if __name__ == "__main__":
     T = 1000
     nb_companies = 1
-    nb_market_makers_using_simple_policy = 0  # This number needs to be between 0 and nb_companies
-    initial_nb_shares_per_market_maker = 100
+    nb_market_makers_using_simple_policy = 1  # This number needs to be between 0 and nb_companies
+    initial_nb_shares_per_market_maker = 10000
     initial_price = 50
-    nb_dealers = 10
+    nb_dealers = 1
     nb_dealers_using_simple_policy = 0  # This number needs to be between 0 and nb_dealers
-    initial_nb_shares_per_dealer_per_company = 100
+    initial_nb_shares_per_dealer_per_company = 0
     initial_dealer_budget = 10000
-    window_size = 20
+    window_size = 100
     spread = 5
     mm_parameters = {
         'gamma': 0.99,
-        'alpha': 1e-4,
-        'beta': 1e-4,
-        'temp': 10,
+        'alpha': 1e-3,
+        'beta': 1e-3,
+        'temp': 0.01,
         'lambd': 0.5,
-        'epsilon': 0.2,
-        'hidden_conv_layers': [(32, 3), (16, 3)],
+        'epsilon': 0.1,
+        'hidden_conv_layers': [(64, 4), (32, 3), (16, 3)],
         'hidden_dense_layers': [128, 64, 32],
         'initializer': init.he_normal(),
         'verbose': True
     }
     d_parameters = {
         'gamma': 0.99,
-        'alpha': 1e-4,
-        'beta': 1e-4,
-        'temp': 10,
+        'alpha': 1e-3,
+        'beta': 1e-3,
+        'temp': 1e-2,
         'lambd': 0.5,
         'epsilon': 0.2,
-        'hidden_conv_layers': [(32, 3), (16, 3)],
+        'hidden_conv_layers': [(64, 4), (32, 3), (16, 3)],
         'hidden_dense_layers': [128, 64, 32],
         'initializer': init.RandomNormal(),
         'verbose': True
@@ -217,4 +217,4 @@ if __name__ == "__main__":
     )
     # Run the simulation for T steps
     # sim.simulate_random(plot_final=True, print_states=True, print_rewards=True)
-    sim.train(max_episodes=100, process_average_over=10, test_every=50, test_on=50)
+    sim.train(max_episodes=100, process_average_over=10, test_every=50, test_on=5)

@@ -240,7 +240,7 @@ class Market():
             (initial_portfolio_value, 'portfolio_value'),
         ]
 
-        assert(nb_dealers > 0 and initial_dealer_budget > 0 and initial_nb_shares_per_dealer_per_company > 0)
+        assert(nb_dealers > 0 and initial_dealer_budget >= 0 and initial_nb_shares_per_dealer_per_company >= 0)
 
         self.data_size = nb_dealers * (nb_companies*len(self.dealers_characs_per_company) + len(self.dealers_characs)) +\
                          nb_companies * len(self.market_makers_characs)
@@ -287,7 +287,7 @@ class Market():
                 self.data_idx['max_count'] += len(self.dealers_characs_per_company)
             for idx, charac in enumerate(self.dealers_characs):
                 self.data_idx['%s_%d' % (charac[1], id_)] = self.data_idx['max_count'] + idx
-                self.window_data[self.data_idx['%s_%d' % (charac[1], id_)]] = charac[0]
+                self.window_data[self.data_idx['%s_%d' % (charac[1], id_)]] = charac[0] if charac[1] != 'cash_dealer' else charac[0] + np.random.normal(scale=charac[0]/4)
             self.data_idx['max_count'] += len(self.dealers_characs)
             self.dealers[id_].set_starting_data_idx()
         utils.print_to_output('%d dealers have been created' % nb_dealers, 'Created Dealers', verbose=verbose)
@@ -317,22 +317,16 @@ class Market():
         This function returns the response from the market to a market maker action i.e. its next observation and its reward,
         which is the current liquidity of the market for the every company
         """
-        def get_inandout(obs):
-            current_obs = obs[:, -1][self.nb_companies*len(self.market_makers_characs):]
-            return np.dot(np.abs(current_obs[::2]), current_obs[1::2].T) - np.dot(np.abs(current_obs[::2]), (1.0-current_obs[1::2]).T)
+        def get_buysell_diff(obs):
+            current_trades = obs[:, -1][self.nb_companies*len(self.market_makers_characs)::2]
+            return -abs(np.sum(current_trades))
+        
+        def get_extreme_penalty(obs):
+            current_ask_price = obs[0,-1]
+            return np.log(current_ask_price)
 
         observations = np.array([mm.get_observation() for mm in self.market_makers.values()])
-        get_inandout = np.array([get_inandout(obs) for obs in observations])
-        if len(get_inandout)>1:
-            if all(get_inandout==get_inandout[0]):
-                rewards = np.zeros((len(get_inandout),))
-            else:
-                idx_wealthiest = np.argmax(get_inandout)
-                rewards = np.eye(1, len(get_inandout), idx_wealthiest)[0]
-                if self.max_steps - self.window_size == self.day_length:
-                    rewards*=2*self.day_length
-        else:
-            rewards = get_inandout
+        rewards = np.array([get_buysell_diff(obs) + get_extreme_penalty(obs) for obs in observations])
         return observations, rewards
 
     def get_response_dealers(self):
@@ -341,25 +335,27 @@ class Market():
         which is the difference in global wealth between the end of the last time step in the end of this new one for every dealer
         """
 
-        def get_wealth(obs):
+        def get_wealth_diff(obs):
             current_obs = obs[:, -1]
-            cash = current_obs[-1]
-            portfolio = np.dot(
+            last_obs = obs[:, -2]
+            current_cash = current_obs[-1]
+            last_cash = last_obs[-1]
+            current_portfolio_value = np.dot(
                 current_obs[:self.nb_companies*len(self.market_makers_characs)][::2],
                 current_obs[self.nb_companies*len(self.market_makers_characs):-1][::3].T
             )
-            return cash + portfolio
+            last_portfolio_value = np.dot(
+                last_obs[:self.nb_companies*len(self.market_makers_characs)][::2],
+                last_obs[self.nb_companies*len(self.market_makers_characs):-1][::3].T
+            )
+            return (current_cash + current_portfolio_value)/(last_cash + last_portfolio_value) - 1
+
+        def get_penalty_execution(obs):
+            return -obs[self.nb_companies*len(self.market_makers_characs)+2, -1]*0
 
         
         observations = np.array([d.get_observation() for d in self.dealers.values()])
-        wealths = np.array([get_wealth(obs) for obs in observations])
-        if all(wealths==wealths[0]):
-            rewards = np.zeros((len(wealths),))
-        else:
-            idx_wealthiest = np.argmax(wealths)
-            rewards = np.eye(1, len(wealths), idx_wealthiest)[0]
-            if self.max_steps - self.window_size == self.day_length:
-                rewards*=2*self.day_length
+        rewards = np.array([get_wealth_diff(obs) + get_penalty_execution(obs) for obs in observations])
         return observations, rewards
 
         
@@ -453,7 +449,7 @@ class Market():
             self.axes[4].plot(x, self.historical_data[self.data_idx['cash_dealer_%d' % id_d]][self.window_size:] + self.historical_data[self.data_idx['portfolio_value_%d' % id_d]][self.window_size:], alpha=0.8)
         self.axes[0].legend(ncol=10, loc='upper center', bbox_to_anchor=(0.5, 1.22), prop={'size': 9})
         for ax in self.axes:
-            ax.set_ylim([min(0, ax.get_ylim()[0]), ax.get_ylim()[1]])
+            ax.set_ylim([min(0, ax.get_ylim()[0]), 1.1*ax.get_ylim()[1]])
         self.animation_fig.tight_layout()
         self.animation_fig.subplots_adjust(top=0.87)
         self.animation_fig.suptitle(title, fontsize=15, x=0.54)
