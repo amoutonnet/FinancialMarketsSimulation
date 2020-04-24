@@ -267,7 +267,14 @@ class DealerRL(RLAgent):
         hidden_conv_layers=[],
         hidden_dense_layers=[128],
         initializer='random_normal',
-        verbose=False
+        verbose=False,
+        sell_baseline,
+        buy_baseline,
+        simple_buy_amount = 1,
+        simple_sell_amount = 1,
+        resp = 0.02,
+        thb = 0.1,
+        ths = 0.1
     ):
         super().__init__(
             N,
@@ -331,7 +338,7 @@ class DealerRL(RLAgent):
             print()
             self.critic.summary()
 
-    def get_action_simple_policy(self, observation):
+    def get_action_simple_policy(self, observation, option):
         """This function takes as input an observation of one dealer
         and output an amount to trade between -self.max_amount and
         +self.max_amount FOR EACH COMPANY as an array. The total
@@ -343,6 +350,7 @@ class DealerRL(RLAgent):
 
         Arguments:
             observation {[np.ndarray]} -- [The dealer observation array described in the report]
+            option -- what kind of simple policy to be used
 
         Returns:
             action {[int]} -- [an amount to trade between -self.max_amount and +self.max_amount]
@@ -350,7 +358,50 @@ class DealerRL(RLAgent):
         print(observation)
         # sys.exit()  # Uncomment this line to stop the program just after the print
         # TO COMPLETE (replace [0]*self.action_space_shape[0])
-        action = [0] * self.action_space_shape[0]
+        window_length = len(observation) / (1 + 5 * self.action_space_shape[0])
+        #simple policy 1: when price increases, buy it, vice versa.
+        if option == 1:
+            action = [0] * self.action_space_shape[0]
+            for i in range(self.action_space_shape[0]):
+                t_now = window_length - (1 + 5 * self.action_space_shape[0]) + 2 * i - 1# i don't know whether this t_now is correct in this data structure
+                t_past = window_length - 2 * (1 + 5 * self.action_space_shape[0]) + 2 * i - 1
+                #i-th stock
+                action[i] = (observation[t_now] - observation[t_past])/observation[t_past] * self.resp * self.stock[i] 
+                    #self.resp is dealer's response coefficient. When a dealer sees one stock increases 5%, he will buy 5% * resp * stock's position more shares.
+                action[i] = np.clip(action[i],-self.max_amount,self.max_amount)
+
+
+            
+        # simple policy 2: for each dealer, if stock's price is higher than dealer's baseline, sell it, vice versa.
+        if option == 2:
+            action = [0] * self.action_space_shape[0]
+            for i in range(self.action_space_shape[0]):
+                t_now = window_length - (1 + 5 * self.action_space_shape[0]) + 2 * i - 1
+                if obervation[t_now] > self.sell_baseline:
+                    action[i] = self.simple_sell_amount
+                if obervation[t_now] < self.buy_baseline:
+                    action[i] = self.simple_buy_amount
+                action[i] = np.clip(action[i],-self.max_amount,self.max_amount)
+
+        # simple policy 3: when price > moving average of past few days, comparing its ratio with threshold of this dealer, to buy or sell shares
+        if option == 3:
+            action = [0] * self.action_space_shape[0]
+            for i in range(self.action_space_shape[0]):
+                t_now = window_length - (1 + 5 * self.action_space_shape[0]) + 2 * i - 1
+                t_p1 = window_length - 2*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
+                t_p2 = window_length - 3*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
+                t_p3 = window_length - 4*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
+                t_p4 = window_length - 5*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
+                t_p5 = window_length - 6*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
+                t_ma = [t_p1,t_p2,t_p3,t_p4,t_p5]
+                if (observation[t_now] - np.mean(observation[t_past]))/np.mean(observation[t_past]) > self.thb:  #thb = threshold of buy
+                    action[i] = self.simple_buy_amount
+                if (observation[t_now] - np.mean(observation[t_past]))/np.mean(observation[t_past]) < self.ths: #ths = threshold of sell
+                    action[i] = self.simple_sell_amount
+                action[i] = np.clip(action[i],-self.max_amount,self.max_amount)
+                  
+
+
         assert(all([act <= self.max_amount and act >= -self.max_amount for act in action]))
         return action
 
