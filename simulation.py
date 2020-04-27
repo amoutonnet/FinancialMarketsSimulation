@@ -10,7 +10,7 @@ import sys
 import time
 import tensorflow.keras.initializers as init
 
-SEED = 150
+SEED = 100
 
 
 tf.random.set_seed(SEED)
@@ -153,11 +153,11 @@ class Simulation():
 if __name__ == "__main__":
     T = 1000
     nb_companies = 1
-    nb_market_makers_using_simple_policy = 0  # This number needs to be between 0 and nb_companies
+    nb_market_makers_using_simple_policy = 1  # This number needs to be between 0 and nb_companies
     initial_nb_shares_per_market_maker = 10000
-    initial_price = 100
-    nb_dealers = 1
-    nb_dealers_using_simple_policy = 1  # This number needs to be between 0 and nb_dealers
+    initial_price = 10
+    nb_dealers = 5
+    nb_dealers_using_simple_policy = 0  # This number needs to be between 0 and nb_dealers
     initial_nb_shares_per_dealer_per_company = 100
     initial_dealer_budget = 100000
     window_size = 5
@@ -176,7 +176,7 @@ if __name__ == "__main__":
         'initializer': init.RandomNormal(),
         'verbose': True,
         'simple_policy_dict': {
-            'option': 2,
+            'option': 1,
             'sin_mean': 100,
             'sin_amplitude': 10,
             'sin_period': 20,
@@ -188,16 +188,16 @@ if __name__ == "__main__":
         'alpha': 1e-3,
         'beta': 1e-3,
         'temp': 1e-2,
-        'lambd': 0,
+        'lambd': 0.5,
         'epsilon': 0.2,
         'hidden_conv_layers': [(64, 4), (32, 3), (16, 3)],
         'hidden_dense_layers': [128, 64, 32],
         'initializer': init.RandomNormal(),
         'verbose': True,
         'simple_policy_dict': {
-            'option': 4,
-            'sell_baseline': 105,
-            'buy_baseline': 95,
+            'option': 2,
+            'sell_baseline': 10,
+            'buy_baseline': 5,
             'simple_buy_amount': 5,
             'simple_sell_amount': 5,
         }

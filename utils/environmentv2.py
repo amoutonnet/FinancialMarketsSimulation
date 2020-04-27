@@ -113,9 +113,9 @@ class Market():
             diff = abs(total_buy - total_sell)
             return total_sell * total_buy / (1 + diff)
 
-        # def get_log_diff_prices():
-        #     log_diff = np.log(DELTA + abs(obs[0, -1] - obs[0, -2]) / (obs[0, -2] + obs[0, -1] + 1))
-        #     return log_diff
+        def get_log_diff_prices():
+            log_diff = np.log(utils.DELTA + abs(obs[0, -1] - obs[0, -2]) / (obs[0, -2] + obs[0, -1]))
+            return log_diff
 
         def get_extreme_penalty():
             current_ask_price = obs[0, -1]
@@ -125,7 +125,7 @@ class Market():
             else:
                 return log_pen
 
-        return get_buysell_diff() + get_extreme_penalty()
+        return get_buysell_diff() + get_extreme_penalty() + get_log_diff_prices()
 
     def get_all_mm(self):
         observations = []

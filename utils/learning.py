@@ -142,16 +142,22 @@ class MarketMakerRL(RLAgent):
         advantages = tf.keras.Input(shape=(1,), name='market_makers_advantages')
         output_conv = self.get_base_conv(obs, 'market_makers', 'common')
         x = self.get_base_dense(output_conv, 'market_makers', 'actor')
-        mu = tf.keras.layers.Dense(1, activation='linear',
-                                   kernel_initializer=self.initializer,
-                                   bias_initializer=self.initializer,
-                                   name='market_makers_means')(x)
-        self.policy = tf.keras.Model(inputs=obs, outputs=mu, name='Market_Makers_Policy')
-        self.actor = tf.keras.Model(inputs=[obs, advantages], outputs=mu, name='Market_Makers_Actor')
+        mulogsig = tf.keras.layers.Dense(2, activation='linear',
+                                         kernel_initializer=self.initializer,
+                                         bias_initializer=self.initializer,
+                                         name='market_makers_means')(x)
+        self.policy = tf.keras.Model(inputs=obs, outputs=mulogsig, name='Market_Makers_Policy')
+        self.actor = tf.keras.Model(inputs=[obs, advantages], outputs=mulogsig, name='Market_Makers_Actor')
 
         def actor_loss(y_true, y_pred):
-            mu = y_pred
+            mu = y_pred[:, 0]
             action = y_true
+            log_sigma = y_pred[:, 1]
+            sigma = K.exp(log_sigma)
+            var = K.square(sigma)
+            # log_sigma = LOG_SIGMA
+            # sigma = SIGMA
+            # var = VAR
 
             def cdf_gauss(a):
                 x = a * NPY_SQRT1_2
@@ -185,10 +191,10 @@ class MarketMakerRL(RLAgent):
                 action < self.action_space_upper_limit,
                 tf.where(
                     action > self.action_space_lower_limit,
-                    -0.5 * K.log(2 * NPY_PI) - LOG_SIGMA - 0.5 * K.square(action - mu) / VAR,
-                    log_cdf_gauss((self.action_space_lower_limit - mu) / SIGMA)
+                    -0.5 * K.log(2 * NPY_PI) - log_sigma - 0.5 * K.square(action - mu) / var,
+                    log_cdf_gauss((self.action_space_lower_limit - mu) / sigma)
                 ),
-                log_cdf_gauss(-(self.action_space_upper_limit - mu) / SIGMA)
+                log_cdf_gauss(-(self.action_space_upper_limit - mu) / sigma)
             )
             old_log_lik = K.stop_gradient(log_lik)
             advantages_with_entropy = advantages - self.temp * old_log_lik
@@ -243,15 +249,15 @@ class MarketMakerRL(RLAgent):
     def get_actions(self, observations, nbs_simple_policy, time_step):
         if nbs_simple_policy:
             if nbs_simple_policy < len(observations):
-                means = np.squeeze(self.policy(observations[:-nbs_simple_policy]).numpy())
-                actions = np.random.normal(means, SIGMA, len(means))
+                output = self.policy(observations).numpy()
+                actions = np.random.normal(output[:, 0], np.exp(output[:, 1]), len(output))
                 simple_policy_actions = np.array([self.get_action_simple_policy(obs, time_step) for obs in observations[-nbs_simple_policy:]], dtype=np.float32)
                 actions = np.concatenate((actions, simple_policy_actions))
             else:
                 actions = np.array([self.get_action_simple_policy(obs, time_step) for obs in observations], dtype=np.float32)
         else:
-            means = self.policy(observations)
-            actions = np.random.normal(means, SIGMA, len(means))
+            output = self.policy(observations).numpy()
+            actions = np.random.normal(output[:, 0], np.exp(output[:, 1]), len(output))
         clipped_actions = np.clip(actions, self.action_space_lower_limit, self.action_space_upper_limit)
         return clipped_actions
 
