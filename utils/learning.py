@@ -5,19 +5,19 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 import itertools
 from . import utils
-np.set_printoptions(suppress=True, linewidth=1000)
 
 
 DELTA = utils.DELTA
-VAR = 1
 SIGMA = 1
-LOG_SIGMA = 0
+VAR = SIGMA * SIGMA
+LOG_SIGMA = np.log(SIGMA)
 NPY_SQRT1_2 = 1 / (2**0.5)
 NPY_PI = np.pi
 
 
 class RLAgent():
-    def __init__(self, N, obs_space_shape, gamma, alpha, beta, temp, lambd, epsilon, hidden_conv_layers, hidden_dense_layers, initializer, verbose):
+    def __init__(self, simulation, N, obs_space_shape, gamma, alpha, beta, temp, lambd, epsilon, hidden_conv_layers, hidden_dense_layers, initializer, verbose):
+        self.simulation = simulation  # The simulation we're in
         self.obs_space_shape = obs_space_shape  # The shape of the observation space
         self.gamma = gamma  # The discount rate associated with the agent experience
         self.alpha = alpha  # The learning rate for the parameter of the policy network
@@ -91,6 +91,7 @@ class RLAgent():
 class MarketMakerRL(RLAgent):
     def __init__(
         self,
+        simulation,
         N,
         obs_space_shape,
         action_space_limits,
@@ -103,9 +104,17 @@ class MarketMakerRL(RLAgent):
         hidden_conv_layers=[],
         hidden_dense_layers=[128],
         initializer='random_normal',
-        verbose=False
+        verbose=False,
+        simple_policy_dict={
+            'option': 1,
+            'sin_mean': 100,
+            'sin_amplitude': 10,
+            'sin_period': 20,
+            'random_walk_step': 1,
+        }
     ):
         super().__init__(
+            simulation,
             N,
             obs_space_shape,
             gamma,
@@ -122,6 +131,7 @@ class MarketMakerRL(RLAgent):
         self.action_space_lower_limit = action_space_limits[0]
         self.action_space_upper_limit = action_space_limits[1]
         self.name = 'Market Makers'
+        self.simple_policy_dict = simple_policy_dict
         self.build_network()
 
     def build_network(self):
@@ -219,22 +229,29 @@ class MarketMakerRL(RLAgent):
         # print(observation)
         # sys.exit()  # Uncomment this line to stop the program just after the print
         # TO COMPLETE (replace 10)
-        # current_trades = observation[:, -1][self.N * 2::2]
-        # diff = np.sum(current_trades)
-        action = 100 + 10 * np.sin(2 * NPY_PI * time_step / 50)
-        return [action]
+        if self.simple_policy_dict['option'] == 1:
+            action = self.simple_policy_dict['sin_mean'] + self.simple_policy_dict['sin_amplitude'] * np.sin(2 * NPY_PI * time_step / self.simple_policy_dict['sin_period'])
+        elif self.simple_policy_dict['option'] == 2:
+            if np.random.rand() > 0.5:
+                action = observation[0, -1] + self.simple_policy_dict['random_walk_step']
+            else:
+                action = observation[0, -1] - self.simple_policy_dict['random_walk_step']
+        else:
+            raise NotImplementedError
+        return action
 
     def get_actions(self, observations, nbs_simple_policy, time_step):
         if nbs_simple_policy:
             if nbs_simple_policy < len(observations):
-                means = self.policy(observations[:-nbs_simple_policy])
-                simple_policy_means = np.array([self.get_action_simple_policy(obs, time_step) for obs in observations[-nbs_simple_policy:]], dtype=np.float32)
-                means = np.vstack((means, simple_policy_means))
+                means = np.squeeze(self.policy(observations[:-nbs_simple_policy]).numpy())
+                actions = np.random.normal(means, SIGMA, len(means))
+                simple_policy_actions = np.array([self.get_action_simple_policy(obs, time_step) for obs in observations[-nbs_simple_policy:]], dtype=np.float32)
+                actions = np.concatenate((actions, simple_policy_actions))
             else:
-                means = np.array([self.get_action_simple_policy(obs, time_step) for obs in observations], dtype=np.float32)
+                actions = np.array([self.get_action_simple_policy(obs, time_step) for obs in observations], dtype=np.float32)
         else:
             means = self.policy(observations)
-        actions = np.random.normal(means, SIGMA, len(means))
+            actions = np.random.normal(means, SIGMA, len(means))
         clipped_actions = np.clip(actions, self.action_space_lower_limit, self.action_space_upper_limit)
         return clipped_actions
 
@@ -261,6 +278,7 @@ class MarketMakerRL(RLAgent):
 class DealerRL(RLAgent):
     def __init__(
         self,
+        simulation,
         N,
         obs_space_shape,
         action_space_shape,
@@ -274,15 +292,16 @@ class DealerRL(RLAgent):
         hidden_dense_layers=[128],
         initializer='random_normal',
         verbose=False,
-        sell_baseline,
-        buy_baseline,
-        simple_buy_amount = 1,
-        simple_sell_amount = 1,
-        resp = 0.02,
-        thb = 0.1,
-        ths = 0.1
+        simple_policy_dict={
+            'option': 1,
+            'sell_baseline': 0,
+            'buy_baseline': 0,
+            'simple_buy_amount': 1,
+            'simple_sell_amount': 1
+        }
     ):
         super().__init__(
+            simulation,
             N,
             obs_space_shape,
             gamma,
@@ -300,6 +319,7 @@ class DealerRL(RLAgent):
         self.max_amount = int((action_space_shape[1] - 1) / 2)
         self.name = 'Dealers'
         self.build_network()
+        self.simple_policy_dict = simple_policy_dict
 
     def build_network(self):
         """
@@ -345,7 +365,7 @@ class DealerRL(RLAgent):
             print()
             self.critic.summary()
 
-    def get_action_simple_policy(self, observation, option):
+    def get_action_simple_policy(self, observation, time_step):
         """This function takes as input an observation of one dealer
         and output an amount to trade between -self.max_amount and
         +self.max_amount FOR EACH COMPANY as an array. The total
@@ -362,57 +382,46 @@ class DealerRL(RLAgent):
         Returns:
             action {[int]} -- [an amount to trade between -self.max_amount and +self.max_amount]
         """
-        print(observation)
         # sys.exit()  # Uncomment this line to stop the program just after the print
         # TO COMPLETE (replace [0]*self.action_space_shape[0])
-        window_length = len(observation) / (1 + 5 * self.action_space_shape[0])
-        #simple policy 1: when price increases, buy it, vice versa.
-        if option == 1:
-            action = [0] * self.action_space_shape[0]
-            for i in range(self.action_space_shape[0]):
-                t_now = window_length - (1 + 5 * self.action_space_shape[0]) + 2 * i - 1# i don't know whether this t_now is correct in this data structure
-                t_past = window_length - 2 * (1 + 5 * self.action_space_shape[0]) + 2 * i - 1
-                #i-th stock
-                action[i] = (observation[t_now] - observation[t_past])/observation[t_past] * self.resp * self.stock[i] 
-                    #self.resp is dealer's response coefficient. When a dealer sees one stock increases 5%, he will buy 5% * resp * stock's position more shares.
-                action[i] = np.clip(action[i],-self.max_amount,self.max_amount)
-
-
-            
+        # simple policy 1: when price increases, buy it, vice versa.
+        if self.simple_policy_dict['option'] == 1:
+            ask_prices_now = observation[:, -1][:2 * self.simulation.env.Nm:2]
+            ask_prices_past = observation[:, -2][:2 * self.simulation.env.Nm:2]
+            diff = ask_prices_now - ask_prices_past
+            action = np.array([self.simple_policy_dict['simple_buy_amount'] if i > 0 else -self.simple_policy_dict['simple_sell_amount'] for i in diff])
         # simple policy 2: for each dealer, if stock's price is higher than dealer's baseline, sell it, vice versa.
-        if option == 2:
-            action = [0] * self.action_space_shape[0]
-            for i in range(self.action_space_shape[0]):
-                t_now = window_length - (1 + 5 * self.action_space_shape[0]) + 2 * i - 1
-                if obervation[t_now] > self.sell_baseline:
-                    action[i] = self.simple_sell_amount
-                if obervation[t_now] < self.buy_baseline:
-                    action[i] = self.simple_buy_amount
-                action[i] = np.clip(action[i],-self.max_amount,self.max_amount)
+        elif self.simple_policy_dict['option'] == 2:
+            ask_prices_now = observation[:, -1][:2 * self.simulation.env.Nm:2]
+            compare_to_sellbs = ask_prices_now > self.simple_policy_dict['sell_baseline']
+            compare_to_buybs = ask_prices_now < self.simple_policy_dict['buy_baseline']
+            action = np.empty((len(compare_to_sellbs),))
+            for idx, (i, j) in enumerate(zip(compare_to_sellbs, compare_to_buybs)):
+                if i:
+                    action[idx] = -self.simple_policy_dict['simple_sell_amount']
+                elif j:
+                    action[idx] = self.simple_policy_dict['simple_buy_amount']
+                else:
+                    action[idx] = 0
 
         # simple policy 3: when price > moving average of past few days, comparing its ratio with threshold of this dealer, to buy or sell shares
-        if option == 3:
-            action = [0] * self.action_space_shape[0]
-            for i in range(self.action_space_shape[0]):
-                t_now = window_length - (1 + 5 * self.action_space_shape[0]) + 2 * i - 1
-                t_p1 = window_length - 2*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
-                t_p2 = window_length - 3*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
-                t_p3 = window_length - 4*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
-                t_p4 = window_length - 5*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
-                t_p5 = window_length - 6*(1 + 5 * self.action_space_shape[0]) + 2 * i - 1
-                t_ma = [t_p1,t_p2,t_p3,t_p4,t_p5]
-                if (observation[t_now] - np.mean(observation[t_past]))/np.mean(observation[t_past]) > self.thb:  #thb = threshold of buy
-                    action[i] = self.simple_buy_amount
-                if (observation[t_now] - np.mean(observation[t_past]))/np.mean(observation[t_past]) < self.ths: #ths = threshold of sell
-                    action[i] = self.simple_sell_amount
-                action[i] = np.clip(action[i],-self.max_amount,self.max_amount)
-                  
-
+        elif self.simple_policy_dict['option'] == 3:
+            ask_prices_now = observation[:, -1][:2 * self.simulation.env.Nm:2]
+            moving_average = np.mean(observation[:2 * self.simulation.env.Nm:2, :], axis=1)
+            diff = ask_prices_now - moving_average
+            action = np.array([self.simple_policy_dict['simple_buy_amount'] if i > 0 else -self.simple_policy_dict['simple_sell_amount'] for i in diff])
+        elif self.simple_policy_dict['option'] == 4:
+            p = np.array([[1 / (2 * self.max_amount + 1)] * (2 * self.max_amount + 1)] * self.simulation.env.Nm)
+            c = p.cumsum(axis=1)
+            u = np.random.rand(len(c), 1)
+            action = (u < c).argmax(axis=1) - self.max_amount
+        else:
+            raise NotImplementedError
 
         assert(all([act <= self.max_amount and act >= -self.max_amount for act in action]))
         return action
 
-    def get_actions(self, observations, nbs_simple_policy):
+    def get_actions(self, observations, nbs_simple_policy, time_step):
         if nbs_simple_policy:
             if nbs_simple_policy < len(observations):
                 nn_output = self.policy(observations[:-nbs_simple_policy])
@@ -423,10 +432,10 @@ class DealerRL(RLAgent):
                 cumsums = np.cumsum(probabilities, axis=-1)
                 unif_draws = np.random.rand(*cumsums.shape)
                 actions = (unif_draws < cumsums).argmax(axis=-1) - self.max_amount
-                simple_policy_actions = np.array([self.get_action_simple_policy(obs) for obs in observations[-nbs_simple_policy:]], dtype=np.int32)
+                simple_policy_actions = np.array([self.get_action_simple_policy(obs, time_step) for obs in observations[-nbs_simple_policy:]], dtype=np.int32)
                 return np.vstack((actions, simple_policy_actions))
             else:
-                return np.array([self.get_action_simple_policy(obs) for obs in observations], dtype=np.int32)
+                return np.array([self.get_action_simple_policy(obs, time_step) for obs in observations], dtype=np.int32)
         else:
             nn_output = self.policy(observations)
             if isinstance(nn_output, list):

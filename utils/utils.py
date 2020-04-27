@@ -1,16 +1,9 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import tensorflow as tf
 import numpy as np
-import random
+np.set_printoptions(suppress=True, linewidth=1000)
 
 DELTA = 1e-8
-
-
-def set_global_seed(seed):
-    tf.random.set_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
 
 
 def print_to_output(message=None, title=None, overoneline=True, verbose=True):
