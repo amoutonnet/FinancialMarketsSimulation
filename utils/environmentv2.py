@@ -76,12 +76,12 @@ class Market():
 
     def reset(self):
         self.histdata = np.zeros((2 * self.Nm + 3 * self.Nm * self.Nd + self.Nd, self.T + self.W + 1), dtype=np.float32)
-        self.histdata[self.slices_dict["m_asks"], :self.W + 1] = self.A0
-        self.histdata[self.slices_dict["m_port"], :self.W + 1] = self.m0
+        self.histdata[self.slices_dict["m_asks"], :self.W + 1] = self.A0 + np.random.normal(0, self.A0 / 3, (self.Nm, self.W + 1))
+        self.histdata[self.slices_dict["m_port"], :self.W + 1] = self.m0 + np.random.randint(-int(self.m0 / 3), int(self.m0 / 3), (self.Nm, self.W + 1))
         for did in range(self.Nd):
-            self.histdata[self.slices_dict["d_port"][did], :self.W + 1] = self.p0
+            self.histdata[self.slices_dict["d_port"][did], :self.W + 1] = self.p0  # + np.random.randint(-int(self.p0 / 3), int(self.p0 / 3), (self.Nm, self.W + 1))
             self.histdata[self.slices_dict["d_exec"][did], :self.W + 1] = 1
-        self.histdata[self.slices_dict["d_cash"], :self.W + 1] = self.c0
+        self.histdata[self.slices_dict["d_cash"], :self.W + 1] = self.c0  # + np.random.normal(0, self.c0 / 3, (self.Nd, self.W + 1))
         self.step = self.W
 
     def get_market_state(self, step):
@@ -159,7 +159,7 @@ class Market():
             return (current_cash + current_portfolio_value) / (last_cash + last_portfolio_value) - 1
 
         def get_penalty_execution():
-            return -np.sum(1 - current_obs[self.Nm * 2 + 2:-1:3]) * 0
+            return -np.sum(1 - current_obs[self.Nm * 2 + 2:-1:3])
 
         return get_wealth_diff() + get_penalty_execution()
 

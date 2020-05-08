@@ -10,7 +10,7 @@ import sys
 import time
 import tensorflow.keras.initializers as init
 
-SEED = 100
+SEED = 20
 
 
 tf.random.set_seed(SEED)
@@ -154,16 +154,17 @@ if __name__ == "__main__":
     T = 1000
     nb_companies = 1
     nb_market_makers_using_simple_policy = 1  # This number needs to be between 0 and nb_companies
-    initial_nb_shares_per_market_maker = 10000
-    initial_price = 10
-    nb_dealers = 5
-    nb_dealers_using_simple_policy = 0  # This number needs to be between 0 and nb_dealers
+    initial_nb_shares_per_market_maker = 1000
+    initial_price = 100
+    nb_dealers = 1
+    nb_dealers_using_simple_policy = 1  # This number needs to be between 0 and nb_dealers
     initial_nb_shares_per_dealer_per_company = 100
-    initial_dealer_budget = 100000
+    initial_dealer_budget = 10000
     window_size = 5
     spread = 5
     L = 10
     M = 1e8
+    verbose = False
     mm_parameters = {
         'gamma': 0.99,
         'alpha': 1e-3,
@@ -174,30 +175,31 @@ if __name__ == "__main__":
         'hidden_conv_layers': [(64, 4), (32, 3), (16, 3)],
         'hidden_dense_layers': [128, 64, 32],
         'initializer': init.RandomNormal(),
-        'verbose': True,
+        'verbose': verbose,
         'simple_policy_dict': {
             'option': 1,
             'sin_mean': 100,
             'sin_amplitude': 10,
             'sin_period': 20,
-            'random_walk_step': 1,
+            'random_walk_step': 2,
+            'brown_scale': 5
         }
     }
     d_parameters = {
         'gamma': 0.99,
-        'alpha': 1e-3,
-        'beta': 1e-3,
-        'temp': 1e-2,
+        'alpha': 1e-5,
+        'beta': 1e-5,
+        'temp': 1,
         'lambd': 0.5,
-        'epsilon': 0.2,
+        'epsilon': 0.1,
         'hidden_conv_layers': [(64, 4), (32, 3), (16, 3)],
         'hidden_dense_layers': [128, 64, 32],
-        'initializer': init.RandomNormal(),
-        'verbose': True,
+        'initializer': init.he_normal(),
+        'verbose': verbose,
         'simple_policy_dict': {
             'option': 2,
-            'sell_baseline': 10,
-            'buy_baseline': 5,
+            'sell_baseline': 105,
+            'buy_baseline': 95,
             'simple_buy_amount': 5,
             'simple_sell_amount': 5,
         }
@@ -223,4 +225,4 @@ if __name__ == "__main__":
     )
     # Run the simulation for T steps
     # sim.simulate_random(plot_final=True, print_states=False, print_rewards=False)
-    sim.train(max_episodes=1000, process_average_over=50, test_every=5, test_on=1)
+    sim.train(max_episodes=1000, process_average_over=50, test_every=2, test_on=1)

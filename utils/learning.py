@@ -242,6 +242,8 @@ class MarketMakerRL(RLAgent):
                 action = observation[0, -1] + self.simple_policy_dict['random_walk_step']
             else:
                 action = observation[0, -1] - self.simple_policy_dict['random_walk_step']
+        elif self.simple_policy_dict['option'] == 3:
+            action = observation[0, -1] + np.random.normal(loc=0, scale=self.simple_policy_dict['brown_scale'])
         else:
             raise NotImplementedError
         return action
